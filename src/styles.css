@@ -616,6 +616,12 @@ h1 { margin-bottom: 0; font: 600 35px/1.05 var(--font-display); letter-spacing: 
 .settings-reset > p { color: var(--muted); font-size: 12px; line-height: 1.6; }
 .settings-footer { position: sticky; bottom: 0; z-index: 1; display: flex; justify-content: flex-end; padding: 14px 24px; border-top: 1px solid var(--line); background: var(--paper); }
 .modal-ssh-import { position: relative; animation: none; }
+.import-options { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 16px; }
+.import-source-actions, .import-selection-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.import-selection-actions output { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.modal-ssh-import [data-import-hosts] { max-height: 320px; overflow-y: auto; }
+.modal-ssh-import .import-host[hidden] { display: none; }
+.modal-ssh-import .import-host:has(input:disabled) { opacity: .75; }
 .modal-ssh-import [data-import-hosts] { color: var(--ink); border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; background: var(--canvas); font-size: 12px; line-height: 1.6; }
 .import-host:last-child { border-bottom: 0; }
 .import-host strong { color: var(--ink); font-size: 13px; overflow-wrap: anywhere; }

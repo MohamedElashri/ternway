@@ -343,16 +343,21 @@ function renderSshPasswordModal(): string {
 }
 
 function renderSshImportModal(): string {
-  return renderModalShell("Import SSH config", "Select hosts to save in your connection library.", `<form class="modal-body form-stack" data-form="ssh-import" data-connection-id="ssh-import">
-    <label class="field"><span>Configuration file</span><input name="path" value="~/.ssh/config"/><small>Finds explicit aliases without running config commands. Git services are left unchecked; advanced aliases need an explicit selection.</small></label>
-    <button type="button" class="button button-quiet" data-action="load-ssh-config">Read configuration</button>
-    <label class="field"><span>Connection mode</span><select name="importMode" data-field="import-mode"><option value="linked">Keep linked to OpenSSH config (recommended)</option><option value="managed">Copy supported settings into managed connections</option></select><small>Linked connections use OpenSSH routing and authentication, with shared file browsing and tunnels. Managed connections offer additional server tools with limited config support.</small></label>
-    <div data-import-hosts>Select a file and read its configuration.</div>
-    <label class="field"><span>Destination group</span><input name="groupName" value="Imported" required/></label>
-    <label class="field"><span>Default username <small>for hosts without User</small></span><input name="username" placeholder="ubuntu" disabled/></label>
-    <label class="field"><span>SSH agent identity <small>optional; overrides imported username and key</small></span><select name="identityId" disabled><option value="">Use imported key or configure password later</option>${state.snapshot.identities.filter(i => i.provider === "sshAgent").map(i => `<option value="${escapeHtml(i.id)}">${escapeHtml(i.name)}</option>`).join("")}</select></label>
-    <label class="favorite-check"><input type="checkbox" name="updateExisting"/><span></span>Update routing and authentication of existing imports</label><p>Repeated imports reuse existing connections. Unchecked: keep existing settings. Checked: reconcile selected aliases while preserving names, groups, tags and notes. Missing aliases are kept for review. Existing profiles are kept. Imported profiles do not connect automatically. OpenSSH-linked profiles always read the source config when connecting.</p>
-    <div data-import-error role="status"></div>
-    <div class="modal-actions"><button type="button" class="button button-quiet" data-action="close-modal">Close</button><button type="submit" class="button button-primary">Import selected hosts</button></div>
+  return renderModalShell("Import SSH config", "Import a whole file or choose individual hosts.", `<form class="modal-body form-stack" data-form="ssh-import" data-connection-id="ssh-import">
+    <fieldset class="import-options" data-import-options>
+      <label class="field"><span>Configuration file</span><input name="path" data-field="import-path" value="~/.ssh/config" required spellcheck="false"/><small>Reads explicit Host aliases and Includes without executing commands or connecting.</small></label>
+      <div class="import-source-actions"><button type="button" class="button button-quiet" data-action="browse-ssh-config">Browse…</button><button type="button" class="button button-quiet" data-action="load-ssh-config">Read configuration</button></div>
+      <div class="form-grid"><label class="field"><span>What to import</span><select name="importScope" data-field="import-scope"><option value="pick">Choose hosts</option><option value="all">Whole configuration</option></select><small>Whole configuration includes every eligible explicit alias, including Git services and advanced aliases in linked mode. Wildcards remain in the source file.</small></label>
+      <label class="field"><span>Connection mode</span><select name="importMode" data-field="import-mode"><option value="linked">Keep linked to OpenSSH config (recommended)</option><option value="managed">Copy supported settings</option></select><small>Linked connections retain routing, authentication and future config changes. Managed mode copies supported values for Ternway's server tools.</small></label></div>
+      <label class="field"><span>Find hosts</span><input type="search" name="hostQuery" data-field="import-search" placeholder="Alias, address or username" aria-controls="ssh-import-hosts"/></label>
+      <div class="import-selection-actions"><button type="button" class="button button-quiet" data-action="select-import-hosts" data-import-select="all" disabled>Select visible</button><button type="button" class="button button-quiet" data-action="clear-import-hosts" data-import-select="none" disabled>Clear visible</button><output data-import-summary aria-live="polite">No configuration loaded.</output></div>
+      <div id="ssh-import-hosts" data-import-hosts aria-label="SSH hosts">Choose a file, then read its configuration to preview the hosts.</div>
+      <label class="field"><span>Destination folder <small>optional</small></span><input name="groupName" value="Imported" placeholder="Work / Servers"/></label>
+      <div class="form-grid"><label class="field"><span>Default username <small>for managed hosts without User</small></span><input name="username" placeholder="ubuntu" disabled/></label>
+      <label class="field"><span>SSH agent identity <small>managed mode only</small></span><select name="identityId" disabled><option value="">Use imported key or configure password later</option>${state.snapshot.identities.filter(i => i.provider === "sshAgent").map(i => `<option value="${escapeHtml(i.id)}">${escapeHtml(i.name)}</option>`).join("")}</select></label></div>
+      <label class="favorite-check"><input type="checkbox" name="updateExisting"/><span></span>Update routing and authentication of existing imports</label><p class="field-hint">Repeated imports reuse existing connections. Updates preserve names, folders, tags and notes. Missing aliases stay in your library. Imported connections do not open automatically.</p>
+    </fieldset>
+    <div data-import-error role="status" aria-live="polite"></div>
+    <div class="modal-actions"><button type="button" class="button button-quiet" data-action="close-modal">Close</button><div class="modal-actions-right"><button type="button" class="button button-quiet" data-action="cancel-ssh-import" hidden>Stop</button><button type="submit" class="button button-primary" disabled>Import selected hosts</button></div></div>
   </form>`, "modal-ssh-import");
 }
