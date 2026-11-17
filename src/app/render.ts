@@ -27,7 +27,13 @@ import { renderLogs } from "./views/logs";
 import { groupExited, paneCount, renderDashboard, renderTabStrip, renderFiles, renderProcesses, renderServices, renderTerminal } from "./views/system";
 import { scrollCommandResultsIntoView, scrollContainerLogsIntoView, viewTransitionIsCurrent } from "./workspace";
 
+let tabSizeObserver: ResizeObserver | undefined;
+function revealActiveTabs(): void {
+  root.querySelectorAll<HTMLElement>(".workspace-tabs .workspace-tab.active, .terminal-tab-list .term-tab.active").forEach(tab => tab.scrollIntoView({ block: "nearest", inline: "nearest" }));
+}
+
 export function render(): void {
+  tabSizeObserver?.disconnect();
   const previousFocus = document.activeElement;
   const settingsFocus = settingsFocusKey(previousFocus);
   const previousConnectionForm = root.querySelector<HTMLFormElement>('form[data-form="server"]');
@@ -67,7 +73,9 @@ export function render(): void {
       if (scrollCommandResultsIntoView()) state.shouldScrollToCommandResults = false;
     }, 0);
   }
-  root.querySelectorAll<HTMLElement>(".workspace-tabs .workspace-tab.active, .terminal-tab-list .term-tab.active").forEach(tab => tab.scrollIntoView({ block: "nearest", inline: "nearest" }));
+  revealActiveTabs();
+  tabSizeObserver ??= new ResizeObserver(revealActiveTabs);
+  root.querySelectorAll(".workspace-tabs, .terminal-tab-list").forEach(list => tabSizeObserver!.observe(list));
   enhanceSelects(root);
   state.renderedLocation = nextLocation;
   mountTerminal();

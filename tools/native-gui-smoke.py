@@ -364,7 +364,9 @@ try:
     click('.nav-item[data-view="terminal"]')
     wait(lambda: execute("return document.querySelector('.terminal-layer')?.textContent.includes('fixture-terminal-ready');"), 'interactive SSH terminal output')
     def check_tab_alignment():
-        geometry = execute("const work=[...document.querySelectorAll('.workspace-tab')].map(el=>{const r=el.getBoundingClientRect();return {height:r.height,top:r.top};});const terms=[...document.querySelectorAll('.term-tab')].map(el=>el.getBoundingClientRect().height);return {work,terms,nested:document.querySelectorAll('button button').length};")
+        def measured():
+            return execute("const work=[...document.querySelectorAll('.workspace-tab')].map(el=>{const r=el.getBoundingClientRect();return {height:r.height,top:r.top};});const terms=[...document.querySelectorAll('.term-tab')].map(el=>el.getBoundingClientRect().height);const visible=[...document.querySelectorAll('.workspace-tabs .workspace-tab.active,.terminal-tab-list .term-tab.active')].every(el=>{const a=el.getBoundingClientRect(),b=el.parentElement.getBoundingClientRect();return a.left>=b.left-1&&a.right<=b.right+1;});return {work,terms,visible,nested:document.querySelectorAll('button button').length};")
+        geometry = wait(lambda: (value if (value:=measured())['visible'] else None), 'selected tab and close control stay visible after resize')
         assert geometry['work'] and all(abs(tab['height']-34)<1 for tab in geometry['work']), geometry
         assert max(tab['top'] for tab in geometry['work'])-min(tab['top'] for tab in geometry['work'])<1, geometry
         assert all(abs(height-34)<1 for height in geometry['terms']), geometry
