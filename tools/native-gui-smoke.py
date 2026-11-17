@@ -251,6 +251,7 @@ try:
     wait(lambda: shown('[data-action="create-connection-folder"]'), 'cancel returns to folder manager')
     click('[data-action="close-modal"]')
     assert shown('[data-connection-group="folder:company/production"]')
+    assert execute("return document.querySelector('.connection-folder .server-item-copy').getBoundingClientRect().width >= 100;"), 'Nested connection names need room beside row actions'
     screenshot('connection-folders.png')
     check('folder UI creates nested folders, moves connections, renames subtrees and returns on cancel')
 

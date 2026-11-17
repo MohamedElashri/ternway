@@ -750,3 +750,7 @@ h1 { margin-bottom: 0; font: 600 35px/1.05 var(--font-display); letter-spacing: 
 .folder-manager-row > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .folder-manager-row small { display: block; color: var(--muted); }
 .folder-manager-row > button { flex-shrink: 0; }
+/* Keep names readable as folders add indentation; actions appear over the row on demand. */
+.connection-folder .server-item-actions { position: absolute; right: 4px; visibility: hidden; opacity: 0; background: var(--paper); border-radius: 8px; }
+.connection-folder .server-item:hover .server-item-actions,
+.connection-folder .server-item:focus-within .server-item-actions { visibility: visible; opacity: 1; }
