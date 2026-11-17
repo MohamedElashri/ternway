@@ -1,8 +1,8 @@
 /* Both tab levels share a 34px row, aligned icons and reserved close targets. */
 .workspace-tabbar { flex: 0 0 auto; min-height: 48px; height: 48px; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--canvas); }
-.workspace-tabbar .workspace-tabs, .terminal-tab-list { min-width: 0; flex: 1; display: flex; align-items: center; gap: 4px; margin: 0; padding: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; }
+.workspace-tabbar .workspace-tabs, .terminal-tab-list { min-width: 0; flex: 1; display: flex; align-items: center; gap: 4px; margin: 0; padding: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
 .workspace-tabbar .workspace-tabs { scrollbar-width: none; }
-.workspace-tabs::-webkit-scrollbar { height: 0; }
+.workspace-tabs::-webkit-scrollbar, .terminal-tab-list::-webkit-scrollbar { height: 0; }
 .workspace-tabbar .workspace-tab, .tab-strip .term-tab { position: relative; flex: 0 1 168px; min-width: 120px; max-width: 220px; height: 34px; min-height: 34px; display: flex; align-items: center; align-self: center; gap: 8px; margin: 0; padding: 0 5px 0 10px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); font: 500 12px/1 var(--font-ui); text-align: left; cursor: pointer; touch-action: none; user-select: none; box-shadow: none; }
 .workspace-tabbar .workspace-tab:hover { background: var(--canvas-deep); color: var(--ink); }
 .workspace-tabbar .workspace-tab.active { border-color: var(--line-strong); background: var(--paper); color: var(--ink); }
