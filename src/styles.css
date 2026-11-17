@@ -742,3 +742,8 @@ h1 { margin-bottom: 0; font: 600 35px/1.05 var(--font-display); letter-spacing: 
 .shutdown-freeze strong { font: 600 20px/1.4 var(--font-ui); }
 .shutdown-freeze p { margin: 12px 0 20px; line-height: 1.6; }
 .shutdown-freeze .button { color: #1d2939; border-color: #98a2b3; }
+
+.connection-order-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.connection-order-row > div:first-child { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.connection-order-row small { color: var(--muted); }
+.connection-order-actions { display: flex; gap: 4px; flex-shrink: 0; }

@@ -1,3 +1,4 @@
+import { orderedConnections } from "./connection-order";
 import { collapsedGroups } from "./connection-groups";
 import { unavailableToolReason } from "./navigation";
 import { icon } from "../icons";
@@ -106,11 +107,7 @@ export function renderOperationBanner(): string {
 
 export function filteredServers(): ServerProfile[] {
   const query = state.serverQuery.trim().toLowerCase();
-  const servers = state.snapshot.servers.filter((server) => `${server.name} ${server.host} ${server.groupName ?? ""} ${server.tags.join(" ")} ${server.notes}`.toLowerCase().includes(query)).sort((left, right) => {
-    if (left.favorite !== right.favorite) return left.favorite ? -1 : 1;
-    const recent = (right.lastConnectedAt ?? "").localeCompare(left.lastConnectedAt ?? "");
-    return recent || left.name.localeCompare(right.name);
-  });
+  const servers = orderedConnections(state.snapshot.servers, state.snapshot.connectionOrder).filter((server) => `${server.name} ${server.host} ${server.groupName ?? ""} ${server.tags.join(" ")} ${server.notes}`.toLowerCase().includes(query));
   if (state.sidebarCopyPlacement) {
     const sourceIndex = servers.findIndex((server) => server.id === state.sidebarCopyPlacement?.sourceId);
     const copyIndex = servers.findIndex((server) => server.id === state.sidebarCopyPlacement?.copyId);
@@ -153,7 +150,7 @@ export function renderServerRail(): string {
     <div class="server-rail-flyout">
       <div class="rail-brand"><span class="brand-mark">${icon("logo")}</span><span class="rail-brand-name">Ternway</span></div>
       <div class="sidebar-section server-section">
-        <div class="section-label-row"><span class="section-label">Connections</span></div>
+        <div class="section-label-row"><span class="section-label">Connections</span><button class="icon-button" data-action="connection-order" aria-label="Reorder connections" title="Reorder connections">${icon("sort")}</button></div>
         <label class="sidebar-search"><span>${icon("search")}</span><input data-field="server-search" value="${escapeHtml(state.serverQuery)}" placeholder="Search connections…" aria-label="Search connections and notes"/><kbd>${platform === "macos" ? "⌘" : "Ctrl"} K</kbd></label>
         <div class="server-list">
           ${servers.length ? renderServerGroups(servers) : `<div class="server-empty">${query ? "No matching connections" : "Add your first SSH connection"}</div>`}

@@ -268,6 +268,7 @@ fn get_state(state: State<'_, AppState>) -> Result<AppStateSnapshot, AppError> {
     Ok(AppStateSnapshot {
         version: APP_VERSION,
         servers: state.store.list_servers()?,
+        connection_order: state.store.connection_order()?,
         identities: state.store.list_identities()?,
         ssh_keys,
         ssh_config_entries,
@@ -1962,6 +1963,7 @@ pub fn run() {
             save_server,
             set_ssh_password,
             set_connection_group,
+            connection_library::set_connection_order,
             read_ssh_config,
             create_identity,
             find_onepassword_agent,

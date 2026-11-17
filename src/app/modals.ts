@@ -1,3 +1,4 @@
+import { renderConnectionOrder } from "./connection-order";
 import { libraryToolsContent } from "./library-tools";
 import { transferQueueContent } from "./transfer-queue";
 import { workspaceLibraryContent } from "./workspace-library";
@@ -44,6 +45,7 @@ export function finishAppDialog(value: boolean): void {
 }
 
 export function renderModal(): string {
+  if (state.modal === "connection-order") return renderModalShell("Connection order", "Move connections up or down within their group. Changes are saved immediately.", renderConnectionOrder(state.snapshot.servers, state.snapshot.connectionOrder), "modal-library");
   if (state.modal === "library-tools") return renderModalShell("Connection library", "Organize, back up and recover your connections.", libraryToolsContent(), "modal-settings modal-library");
   if (state.modal === "transfers") return renderModalShell("Transfer queue", "Review, pause and retry file transfers.", transferQueueContent(), "modal-settings modal-library");
   if (state.modal === "workspaces") return renderModalShell("Workspaces", "Saved connections and terminal layouts for each project.", workspaceLibraryContent(), "modal-workspaces");
