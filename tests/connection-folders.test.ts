@@ -17,6 +17,7 @@ test("legacy groups, nested paths, empty folders and ungrouped connections coexi
 });
 
 test("folder names normalize consistently and preserve saved order within folders", () => {
+  assert.equal(folderPath(null), "");
   assert.equal(folderPath("  Ｗork /  Prod  eu \u200B "), "Work/Prod eu");
   const tree = connectionFolderTree([server("z", "Work/Prod"), server("a", "work/Prod")]);
   assert.equal(tree.children.length, 1);
