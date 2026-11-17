@@ -222,6 +222,8 @@ try:
     native_terminal_review.run(globals())
     import native_terminal_settings_review
     native_terminal_settings_review.run(globals())
+    # The selection fixture clears the screen, so retain its fresh output through theme changes.
+    terminal_theme_marker = "CI_ASK_WRITE_ACCEPT_FINISHED"
     for width, height in [(1000, 700), (1280, 850), (1080, 720), (1400, 900)]:
         request("POST", f"/session/{session}/window/rect", {"width": width, "height": height})
         # Native decorations make the compositor's resize asynchronous. Wait
@@ -291,7 +293,7 @@ try:
     for theme_id, background in theme_backgrounds:
         click(f'[data-theme-id="{theme_id}"]')
         wait(lambda: read("return document.querySelector('#app').dataset.colorTheme===arguments[0] && getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()===arguments[1];", theme_id, background), f'live {theme_id} workspace and terminal palette')
-        assert read("return document.querySelector('.terminal-layer').textContent.includes(arguments[0]);", "REVIEW_MOUSE_OK"), 'Theme changes preserve terminal output'
+        assert read("return document.querySelector('.terminal-layer').textContent.includes(arguments[0]);", terminal_theme_marker), 'Theme changes preserve terminal output'
         hover_point(5,5)
         normal=wait(lambda: (value if (value:=primary_button_metrics())['background']==value['accent'] else None), 'normal button palette')
         assert normal['contrast']>=4.5 and abs(normal['height']-34)<0.1 and normal['shadow']=='none', (theme_id,normal)
