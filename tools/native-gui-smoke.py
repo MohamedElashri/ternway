@@ -228,7 +228,10 @@ try:
     check("window resizing keeps the terminal alive")
 
     click('[data-action="new-terminal"]')
-    tab_ids = wait(lambda: read("const tabs=Array.from(document.querySelectorAll('.term-tab')); return tabs.length===2 && tabs.map(el=>el.dataset.tabGroup);"), 'second local terminal tab')
+    # A tab is rendered before its shell starts, then rendered again when the
+    # startup IPC completes. Starting a drag between those renders loses capture.
+    tab_ids = wait(lambda: read("const tabs=Array.from(document.querySelectorAll('.term-tab')); const output=document.querySelector('.terminal-host:not([hidden]) .ghostty-accessibility'); return tabs.length===2 && output?.textContent.includes('CI_TEST_PROMPT') && tabs.map(el=>el.dataset.tabGroup);"), 'second local shell prompt')
+    request('POST', f'/session/{session}/execute/async', {'script': 'const done=arguments[arguments.length-1]; requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));', 'args': []}, idempotent=True)
     drag_points = read("""
       const tab=document.querySelector('.term-tab').getBoundingClientRect();
       const surface=document.querySelector('[data-terminal-surface]').getBoundingClientRect();
