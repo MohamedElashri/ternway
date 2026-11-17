@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Close the final local terminal or Local workspace without creating replacement shells.
+- Organize connections directly in the sidebar with drag ordering, inline folder controls and a permanent renameable default folder.
+- Align workspace and terminal tabs, with keyboard navigation and consistent close controls.
+- Refine shared buttons, destructive actions, focus states and theme contrast.
+
 - Separate update download, verification, installation and restart stages, with a persistent restart reminder across windows.
 - Remove the duplicate appearance toggle from remote workspaces.
 - Open ordinary windows at a usable size on Linux, including HiDPI and small displays.
