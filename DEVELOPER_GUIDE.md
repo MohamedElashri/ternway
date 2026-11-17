@@ -90,6 +90,10 @@ make build
 `--config` pointing `plugins.updater.endpoints` at a local server (plus
 `"dangerousInsecureTransportProtocol": true` for plain HTTP) and serve a `latest.json` there.
 
+The native GUI suite simulates updater IPC to test progress, restart readiness, cancellation and
+cross-window reminders without installing a package. It does not validate a privileged `.deb` or
+`.rpm` upgrade; use the older packaged build and signed test release flow above for that check.
+
 ### Agent test prerequisites
 
 The normal suite uses OpenSSH `ssh-agent`, `ssh-add` and `ssh-keygen` with a

@@ -144,8 +144,11 @@ private temporary directory and is removed when the editor exits.
 
 Settings → **Updates**, or "Check for updates" in the command palette, asks GitHub for the latest
 release. Ternway never checks on its own. When a newer version exists it shows the release
-notes; **Install update** downloads it, verifies its signature and installs it, and **Restart
-now** starts the new version. Restarting ends the programs running in your terminals.
+notes; **Download and install** downloads it, verifies its signature and installs it. The progress
+steps distinguish installation from the restart needed to run the new version. Once installation
+finishes, choose **Restart to finish update**, or keep working and restart later. A reminder
+stays in your workspace and other open windows even after closing Settings. Restarting ends
+the programs running in your terminals, so Ternway asks before restarting.
 
 AppImage, `.deb`, `.rpm` and macOS installs update in place; for `.deb` and `.rpm` your system asks
 for your password. Builds from source show a link to the releases page instead.

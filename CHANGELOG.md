@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Separate update download, verification, installation and restart stages, with a persistent restart reminder across windows.
+- Remove the duplicate appearance toggle from remote workspaces.
+- Open ordinary windows at a usable size on Linux, including HiDPI and small displays.
+
 ## 0.3.2 - 2026-11-17
 
 - Give each Settings section its own page with persistent navigation.
