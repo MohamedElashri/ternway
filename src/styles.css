@@ -158,7 +158,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .nav-item small { margin-left: auto; color: var(--faint); font-size: 9px; }
 .sidebar-bottom { flex: 0 0 auto; margin-top: auto; padding-top: 10px; display: flex; align-items: center; gap: 6px; }
 .sidebar-bottom .utility-link { flex: 1; }
-.sidebar-theme-toggle { flex: 0 0 auto; }
 
 .main-area { min-width: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
 .workspace-tabbar { min-height: 45px; display: flex; align-items: stretch; gap: 12px; padding: 6px 18px 0 0; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--canvas) 90%, transparent); }
