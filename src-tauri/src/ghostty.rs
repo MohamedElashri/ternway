@@ -1350,7 +1350,15 @@ pub(crate) fn ghostty_action(
                 regex,
                 backwards,
             } => {
-                result = engine.find(&query, case_sensitive, regex, backwards)?;
+                result = match engine.find(&query, case_sensitive, regex, backwards) {
+                    Ok(found) => found,
+                    Err(reason) => {
+                        // Still publish the cleared frame. Returning early here
+                        // leaves stale highlights painted until the next PTY output.
+                        engine.clear_search()?;
+                        json!({"resultIndex":-1,"resultCount":0,"error":reason})
+                    }
+                };
             }
             Action::LastOutput => return Ok(json!(engine.last_output()?)),
             Action::Completion => {
