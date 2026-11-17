@@ -93,6 +93,11 @@ async function readTerminalConfig(announce = false): Promise<void> {
   const version = ++configLoadVersion;
   let loaded: LoadedConfig;
   try {
+    // Watcher notifications can arrive between two queued GUI preference writes.
+    // Apply only their final saved value, preserving the optimistic current choice.
+    let pending: Promise<void>;
+    do { pending = preferenceWrites; await pending; } while (pending !== preferenceWrites);
+    if (version !== configLoadVersion) return;
     loaded = await invoke<LoadedConfig>("load_config");
   } catch (error) {
     if (version !== configLoadVersion) return;
@@ -156,6 +161,7 @@ async function readTerminalConfig(announce = false): Promise<void> {
 // Serialize small GUI preference writes across theme/scale controls and windows.
 let preferenceWrites: Promise<void> = Promise.resolve();
 export async function persistWorkspaceSetting(key: string, value: string): Promise<void> {
+  configLoadVersion++;
   const write = preferenceWrites.then(async () => {
     const loaded = await invoke<LoadedConfig>("load_config");
     await invoke("save_config_settings", { profile: null, expectedRevision: loaded.revision, updates: [{ key, values: [value] }] });
