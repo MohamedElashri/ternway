@@ -76,6 +76,8 @@ export function syncInterfaceScaleControls(): void {
 
 let scaleChanges: Promise<void> = Promise.resolve();
 let appliedScale = DEFAULT_INTERFACE_SCALE;
+/** Config reloads wait for requested GUI zoom writes before applying a file value. */
+export async function waitForInterfaceScaleChanges(): Promise<void> { await scaleChanges; }
 export async function setInterfaceScale(scale: number, announce = true, persistConfig = announce): Promise<void> {
   if (!INTERFACE_SCALE_LEVELS.includes(scale as typeof INTERFACE_SCALE_LEVELS[number])) return;
   state.interfaceScale = scale;

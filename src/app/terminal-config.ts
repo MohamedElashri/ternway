@@ -6,7 +6,7 @@ import { LINUX_DEFAULTS, MACOS_DEFAULTS, parseKeybindings, quickTerminalShortcut
 import { platform, quickMode, root, state, type ResolvedProfile } from "./state";
 import { applyTerminalAppearance } from "./terminal";
 import type { TerminalAppearance } from "./terminal-surface";
-import { setInterfaceScale, showToast } from "./toasts";
+import { setInterfaceScale, waitForInterfaceScaleChanges, showToast } from "./toasts";
 import { applyWindowConfig } from "./window-config";
 import { configureAutomaticUpdates } from "./updater";
 
@@ -99,7 +99,11 @@ export async function loadTerminalConfig(announce = false): Promise<void> {
     root.dataset.colorTheme = selected.id;
   }
   const preset = themePreset(state.themeId);
-  if (config.interfaceScale !== null && config.interfaceScale !== state.interfaceScale) await setInterfaceScale(config.interfaceScale, false, false);
+  if (config.interfaceScale !== null) {
+    await waitForInterfaceScaleChanges();
+    if (version !== configLoadVersion) return;
+    if (config.interfaceScale !== state.interfaceScale) await setInterfaceScale(config.interfaceScale, false, false);
+  }
   if (version !== configLoadVersion) return;
   const base = await resolveTheme(config, errors, preset);
   const profiles = new Map<string, ResolvedProfile>();
