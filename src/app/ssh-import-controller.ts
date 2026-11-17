@@ -23,6 +23,7 @@ export class SshImportController {
   existing = new Set<string>();
   missing: string[] = [];
   private scanVersion = 0;
+  private operationVersion = 0;
   private reading = false;
   private saving = false;
   private stopped = false;
@@ -32,8 +33,9 @@ export class SshImportController {
 
   reset(): void {
     this.scanVersion++;
-    this.entries = []; this.source = ""; this.selected.clear(); this.completed.clear(); this.existing.clear(); this.missing = [];
-    this.reading = false; this.stopped = true;
+    this.operationVersion++;
+    this.entries = []; this.source = ""; this.selected = new Set(); this.completed = new Set(); this.existing = new Set(); this.missing = [];
+    this.reading = false; this.saving = false; this.stopped = false;
   }
 
   private linked(form: HTMLFormElement): boolean { return field(form, "importMode").value === "linked"; }
@@ -97,13 +99,14 @@ export class SshImportController {
   }
 
   async browse(form: HTMLFormElement): Promise<void> {
+    const version = this.scanVersion;
     try {
       const path = await this.effects.browse();
-      if (path && this.effects.current(form) && !this.saving) {
+      if (path && version === this.scanVersion && this.effects.current(form) && !this.saving) {
         field(form, "path").value = path;
         await this.scan(form);
       }
-    } catch (error) { if (this.effects.current(form)) notice(form, errorText(error)); }
+    } catch (error) { if (version === this.scanVersion && this.effects.current(form)) notice(form, errorText(error)); }
   }
 
   async scan(form: HTMLFormElement): Promise<void> {
@@ -111,7 +114,7 @@ export class SshImportController {
     const path = field(form, "path").value.trim();
     if (!path) { notice(form, "Choose an SSH configuration file."); return; }
     const version = ++this.scanVersion;
-    this.source = ""; this.entries = []; this.completed.clear(); this.selected.clear(); this.existing.clear(); this.missing = [];
+    this.source = ""; this.entries = []; this.completed = new Set(); this.selected = new Set(); this.existing = new Set(); this.missing = [];
     this.reading = true;
     this.update(form);
     notice(form, "Reading configuration…");
@@ -169,29 +172,34 @@ export class SshImportController {
     const updateExisting = (field(form, "updateExisting") as HTMLInputElement).checked;
     const source = this.source;
     const completed = this.completed, selectedAliases = this.selected;
+    const operation = ++this.operationVersion;
+    const currentOperation = () => operation === this.operationVersion;
+    const current = () => currentOperation() && this.effects.current(form);
     this.saving = true; this.stopped = false;
     this.update(form);
     let saved = 0, created = 0, failure = "";
     try {
       for (let index = 0; index < drafts.length; index++) {
-        if (this.stopped || !this.effects.current(form)) break;
+        if (!current() || this.stopped) break;
         notice(form, `Importing ${index + 1} of ${drafts.length}: ${selected[index].alias}…`);
         const result = await this.effects.save(drafts[index], source, selected[index].alias, updateExisting);
         saved++; if (result.created) created++;
-        completed.add(selected[index].alias);
-        selectedAliases.delete(selected[index].alias);
+        if (currentOperation()) {
+          completed.add(selected[index].alias);
+          selectedAliases.delete(selected[index].alias);
+        }
       }
     } catch (error) { failure = errorText(error); }
     finally {
-      this.saving = false;
-      if (this.effects.current(form)) {
+      if (currentOperation()) this.saving = false;
+      if (current()) {
         this.update(form);
         notice(form, `Imported ${saved} of ${drafts.length} hosts: ${created} new, ${saved - created} reused${updateExisting ? "/updated" : ""}.${this.stopped ? " Stopped; remaining hosts are ready to import." : failure ? ` ${failure} Remaining hosts are ready to retry.` : " Saved connections are ready in your library."}`);
       }
       // Refresh once even when a later save fails or the user closes the dialog.
       if (saved) {
         try { await this.effects.refresh(); }
-        catch (error) { if (this.effects.current(form)) notice(form, `Imported ${saved} hosts. Could not refresh the library: ${errorText(error)}.`); }
+        catch (error) { if (current()) notice(form, `Imported ${saved} hosts. Could not refresh the library: ${errorText(error)}.`); }
       }
     }
   }
