@@ -141,6 +141,10 @@ fn take_owned(owners: &Mutex<HashMap<String, String>>, label: &str) -> Vec<Strin
         .unwrap_or_default()
 }
 fn observe(app: &AppHandle, window: &WebviewWindow) {
+    // Linux uses the custom titlebar and in-app Settings/About. A native GTK
+    // menubar adds a second, often light-colored chrome row above that titlebar.
+    #[cfg(target_os = "linux")]
+    let _ = window.hide_menu();
     let app = app.clone();
     let label = window.label().to_owned();
     window.on_window_event(move |event| {

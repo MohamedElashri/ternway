@@ -38,7 +38,7 @@ export function installConnectionSidebar(root: HTMLElement): void {
         const serverIds = movedConnectionOrder(state.snapshot.servers, state.snapshot.connectionOrder, id, direction);
         if (server && serverIds) void save("reorganize_connection", { serverId: id, groupName: server.groupName ?? "", serverIds }, `.server-item[data-server-id="${CSS.escape(id)}"]`);
       } else {
-        const parent = (path: string) => folderPath(path).split("/").slice(0, -1).join("/").toLocaleLowerCase();
+        const parent = (path: string) => folderPath(path).split("/").slice(0, -1).join("/").toLowerCase();
         const siblings = orderedFolderPaths(state.snapshot.connectionFolders ?? [], state.snapshot.connectionFolderOrder).filter(path => parent(path) === parent(id));
         const target = siblings[siblings.indexOf(id) + direction];
         if (target) moveFolder(id, target, direction > 0);

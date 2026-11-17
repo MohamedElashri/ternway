@@ -73,17 +73,26 @@ export function syncInterfaceScaleControls(): void {
   if (reset) reset.disabled = state.interfaceScale === DEFAULT_INTERFACE_SCALE;
 }
 
+let scaleChanges: Promise<void> = Promise.resolve();
+let appliedScale = DEFAULT_INTERFACE_SCALE;
 export async function setInterfaceScale(scale: number, announce = true): Promise<void> {
   if (!INTERFACE_SCALE_LEVELS.includes(scale as typeof INTERFACE_SCALE_LEVELS[number])) return;
-  try {
-    await appWebview.setZoom(scale);
-    state.interfaceScale = scale;
-    localStorage.setItem("ternway-interface-scale", String(scale));
-    syncInterfaceScaleControls();
-    if (announce) showToast(`Interface scale set to ${Math.round(scale * 100)}%.`, "info");
-  } catch (error) {
-    if (announce) showToast(`Could not change interface scale: ${errorText(error)}`, "info");
-  }
+  state.interfaceScale = scale;
+  syncInterfaceScaleControls();
+  const persist = (value: number): void => { try { localStorage.setItem("ternway-interface-scale", String(value)); } catch { /* Storage can be unavailable in a private webview. */ } };
+  persist(scale);
+  const next = scaleChanges.then(async () => {
+    try {
+      await appWebview.setZoom(scale);
+      appliedScale = scale;
+      if (announce && state.interfaceScale === scale) showToast(`Interface scale set to ${Math.round(scale * 100)}%.`, "info");
+    } catch (error) {
+      if (state.interfaceScale === scale) { state.interfaceScale = appliedScale; persist(appliedScale); syncInterfaceScaleControls(); }
+      if (announce) showToast(`Could not change interface scale: ${errorText(error)}`, "info");
+    }
+  });
+  scaleChanges = next.catch(() => undefined);
+  await next;
 }
 
 export async function stepInterfaceScale(direction: -1 | 1): Promise<void> {

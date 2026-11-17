@@ -22,7 +22,7 @@ export function connectionFolderTree(servers: ServerProfile[], paths: string[] =
     let parent = root;
     for (const part of folderPath(value).split("/").filter(Boolean)) {
       const path = parent.path ? `${parent.path}/${part}` : part;
-      const key = path.toLocaleLowerCase();
+      const key = path.toLowerCase();
       let folder = folders.get(key);
       if (!folder) {
         folder = { path, name: part, children: [], servers: [], count: 0 };
@@ -34,9 +34,9 @@ export function connectionFolderTree(servers: ServerProfile[], paths: string[] =
   };
   for (const path of paths) ensure(path);
   for (const server of servers) ensure(server.groupName ?? "").servers.push(server);
-  const ranks = new Map(order.map((path, index) => [path.toLocaleLowerCase(), index]));
+  const ranks = new Map(order.map((path, index) => [path.toLowerCase(), index]));
   const count = (folder: ConnectionFolder): number => {
-    folder.children.sort((a, b) => { const rank = (ranks.get(a.path.toLocaleLowerCase()) ?? Infinity) - (ranks.get(b.path.toLocaleLowerCase()) ?? Infinity); return Number.isFinite(rank) && rank !== 0 ? rank : rank === Infinity ? 1 : rank === -Infinity ? -1 : a.name.localeCompare(b.name); });
+    folder.children.sort((a, b) => { const rank = (ranks.get(a.path.toLowerCase()) ?? Infinity) - (ranks.get(b.path.toLowerCase()) ?? Infinity); return Number.isFinite(rank) && rank !== 0 ? rank : rank === Infinity ? 1 : rank === -Infinity ? -1 : a.name.localeCompare(b.name); });
     folder.count = folder.servers.length + folder.children.reduce((sum, child) => sum + count(child), 0);
     return folder.count;
   };
@@ -50,7 +50,7 @@ export function renderConnectionFolders(servers: ServerProfile[], paths: string[
   const root = connectionFolderTree(servers, searching ? [] : paths, options.order);
   const renderFolder = (folder: ConnectionFolder, permanent = false): string => {
     const path = permanent ? "" : folder.path;
-    const key = permanent ? "ungrouped" : `folder:${path.toLocaleLowerCase()}`;
+    const key = permanent ? "ungrouped" : `folder:${path.toLowerCase()}`;
     const name = permanent ? options.defaultName ?? "Default" : folder.name;
     const menuOpen = options.menuFolder === path;
     const count = permanent ? folder.servers.length : folder.count;
