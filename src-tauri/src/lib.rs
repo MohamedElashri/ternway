@@ -1918,6 +1918,7 @@ pub fn run() {
             change_master_password,
             reset_credentials,
             get_state,
+            connection_sidebar::get_connection_library,
             connection_library::import_connection,
             connection_library::inspect_import_source,
             connection_library::bulk_connection_metadata,

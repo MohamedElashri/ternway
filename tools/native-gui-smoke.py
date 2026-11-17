@@ -220,6 +220,8 @@ try:
     check('Control reaches the native keyboard encoder and interrupts a real shell process')
     import native_terminal_review
     native_terminal_review.run(globals())
+    import native_terminal_settings_review
+    native_terminal_settings_review.run(globals())
     for width, height in [(1000, 700), (1280, 850), (1080, 720), (1400, 900)]:
         request("POST", f"/session/{session}/window/rect", {"width": width, "height": height})
         # Native decorations make the compositor's resize asynchronous. Wait
@@ -364,20 +366,24 @@ try:
     def folder_selector(path):
         return f'.connection-folder[data-folder="{path}"]'
     def create_folder(parent, name):
+        execute("window.__folderContent = document.querySelector('.content-area');")
         click(f'[data-action="create-connection-folder"][data-parent="{parent}"]')
         type_into('[data-form="input-prompt"] [name="value"]', name)
         click('[data-form="input-prompt"] button[type="submit"]')
         path = f'{parent}/{name}' if parent else name
         wait(lambda: path in invoke('get_state')['connectionFolders'], 'inline folder create')
         wait(lambda: shown(folder_selector(path)), 'created folder rendered')
+        assert read("return window.__folderContent === document.querySelector('.content-area');"), 'Folder dialog preserves the active terminal/tool DOM'
     def sidebar_drag(source, target, after=False):
         wait(lambda: shown(source) and shown(target), 'drag source and target rendered after persistence')
+        execute("window.__organizationContent = document.querySelector('.content-area');")
         points = execute("const a=document.querySelector(arguments[0]),b=document.querySelector(arguments[1]);a.scrollIntoView({block:'nearest'});b.scrollIntoView({block:'nearest'});const r=a.getBoundingClientRect(),s=b.getBoundingClientRect();return {x:r.left+25,y:r.top+r.height/2,tx:s.left+25,ty:s.top+s.height*(arguments[2] ? 0.75 : 0.25)};", source, target, after,idempotent=True)
         request('POST', f'/session/{session}/actions', {'actions':[{'type':'pointer','id':'sidebar-drag','parameters':{'pointerType':'mouse'},'actions':[
           {'type':'pointerMove','duration':0,'origin':'viewport','x':int(points['x']),'y':int(points['y'])},
           {'type':'pointerDown','button':0},
           {'type':'pointerMove','duration':400,'origin':'viewport','x':int(points['tx']),'y':int(points['ty'])},
           {'type':'pointerUp','button':0}]}]})
+        assert read("return window.__organizationContent === document.querySelector('.content-area');"), 'Organization preserves the active terminal/tool DOM'
     assert not shown('[data-action="connection-order"]') and not shown('[data-action="connection-folders"]')
     click('[data-action="folder-actions"][data-folder=""]')
     assert not shown('[data-action="delete-connection-folder"][data-folder=""]')
@@ -420,7 +426,7 @@ try:
     assert read("return document.querySelector('.connection-folder .server-item-copy').getBoundingClientRect().width >= 100;"), 'Nested names retain room'
     screenshot('connection-folders.png')
     screenshot('connection-order-folders.png')
-    check('inline folders create, rename, drag and delete; protected renamed default receives removed-folder contents; connection drag order persists')
+    check('inline folders create, rename, drag and delete without replacing the active terminal; protected default receives removed-folder contents; connection drag order persists')
 
     backup = root / "library.json"
     invoke("export_library_backup", path=str(backup), includeSecrets=False)
@@ -596,6 +602,11 @@ try:
         check_startup_size()
     request('POST', f'/session/{session}/window', {'handle':original_handle})
     check("named layout opens in another native window at a usable size")
+
+    import native_import_review
+    native_import_review.run(globals())
+    import native_config_review
+    native_config_review.run(globals())
 
     # Exercise the shipped JS updater and real UI with a simulated IPC installer.
     # No release download, package-manager command, or real restart runs here.

@@ -7,6 +7,30 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashSet;
 use tauri::{AppHandle, Emitter, State};
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionLibrary {
+    servers: Vec<crate::models::ServerProfile>,
+    connection_order: Vec<String>,
+    connection_folders: Vec<String>,
+    connection_folder_order: Vec<String>,
+    default_connection_folder: String,
+    identities: Vec<crate::identities::Identity>,
+}
+
+/// Library edits do not require rescanning SSH config Includes or the key directory.
+#[tauri::command(async)]
+pub fn get_connection_library(state: State<'_, AppState>) -> Result<ConnectionLibrary, AppError> {
+    Ok(ConnectionLibrary {
+        servers: state.store.list_servers()?,
+        connection_order: state.store.connection_order()?,
+        connection_folders: state.store.connection_folders()?,
+        connection_folder_order: state.store.connection_folder_order()?,
+        default_connection_folder: state.store.default_connection_folder()?,
+        identities: state.store.list_identities()?,
+    })
+}
+
 fn default_name(value: &str) -> Result<String, String> {
     let name = normalize_path(value)?;
     if name.contains('/') || name.len() > 80 {
@@ -222,7 +246,9 @@ mod tests {
         assert!(store.list_servers().unwrap()[0].group_name.is_none());
         assert_eq!(store.default_connection_folder().unwrap(), "Home");
         assert_eq!(store.connection_folder_order().unwrap(), vec!["Personal"]);
-        store.restore_backup(&backup, &checksum, &dir.join("recovery.json")).unwrap();
+        store
+            .restore_backup(&backup, &checksum, &dir.join("recovery.json"))
+            .unwrap();
         drop(store);
         let store = Store::open(&dir.join("db"), &dir.join("vault")).unwrap();
         assert_eq!(store.default_connection_folder().unwrap(), "Home");

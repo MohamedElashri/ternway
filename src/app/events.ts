@@ -1,4 +1,6 @@
 import { createConfigProfile, deleteConfigProfile, discardConfigChanges, inheritConfigField, saveConfigForm, selectConfigProfile, updateConfigField } from "./config-editor";
+import { mutateConnectionLibrary } from "./connection-sidebar";
+import { revealConnectionFolder, remapCollapsedFolders } from "./connection-groups";
 import { folderPath } from "./connection-folders";
 import { isSettingsPage, settingsPageForKey } from "./settings-pages";
 
@@ -24,7 +26,7 @@ import { cancelTransfer, changeRemoteMode, changeRemoteOwner, createFolder, dele
 import { changeMasterPasswordForm, createGroup, createUserForm, deleteActiveServer, deleteGroup, deleteServer, disconnectActiveServer, duplicateServer, openPackageDetails, resetCredentialsForm, resetUserPasswordForm, runCronAction, runPackageAction, runUserAction, saveCronForm, saveServerForm, saveWorkspaceTabRenameForm, submitMasterPasswordForm } from "./actions/servers";
 import { formatBytes } from "./format";
 import { confirm, requestTextInput, finishAppDialog, finishTextInput, message, renderAuthFieldsForForm } from "./modals";
-import { filteredServers, groupKey, render, renderServerGroups } from "./render";
+import { filteredServers, groupKey, render, renderConnectionSidebar, renderServerGroups } from "./render";
 import { closeCustomSelects, syncCustomSelect } from "./select-controls";
 import { cancelCurrentOperation, finishHostKeyPrompt, finishSshPasswordPrompt, setError } from "./session";
 import { activeCapabilities, activeTerminalTabByWorkspace, appWindow, createLogViewer, DEFAULT_INTERFACE_SCALE, root, state } from "./state";
@@ -307,7 +309,7 @@ export async function runAction(action: string, target: HTMLElement = document.c
     case "folder-actions": {
       const path = target.dataset.folder ?? "";
       state.folderMenuPath = state.folderMenuPath === path ? null : path;
-      render();
+      renderConnectionSidebar();
       root.querySelector<HTMLElement>(`[data-action="folder-actions"][data-folder="${CSS.escape(path)}"]`)?.focus();
       break;
     }
@@ -317,29 +319,37 @@ export async function runAction(action: string, target: HTMLElement = document.c
     case "move-connection-folder": {
       const path = target.dataset.folder ?? "";
       state.folderMenuPath = null;
+      renderConnectionSidebar();
       try {
         if (action === "delete-connection-folder") {
           if (!path) break;
           const destination = state.snapshot.defaultConnectionFolder ?? "Default";
           if (!await confirm(`Delete “${path}” and its subfolders? Its connections will move to “${destination}”.`, { title: "Delete folder", kind: "warning", confirmLabel: "Delete folder" })) break;
-          await invoke("delete_connection_folder", { path });
+          await mutateConnectionLibrary("delete_connection_folder", { path });
+          remapCollapsedFolders(path, null);
         } else if (action === "move-connection-folder") {
           const server = state.snapshot.servers.find(server => server.id === target.dataset.connectionId);
           if (!server) break;
-          const value = await requestTextInput({ title: "Move connection", label: `Folder (empty for ${state.snapshot.defaultConnectionFolder ?? "Default"})`, defaultValue: server.groupName ?? "", allowEmpty: true });
+          const value = await requestTextInput({ title: "Move connection", label: `Folder (empty for ${state.snapshot.defaultConnectionFolder ?? "Default"})`, defaultValue: server.groupName ?? "", allowEmpty: true }, true);
           if (value === null) break;
-          await invoke("set_connection_group", { serverIds: [server.id], groupName: folderPath(value) });
+          await mutateConnectionLibrary("set_connection_group", { serverIds: [server.id], groupName: folderPath(value) });
+          revealConnectionFolder(folderPath(value));
         } else {
           const creating = action === "create-connection-folder";
           const parent = creating ? target.dataset.parent ?? "" : path.split("/").slice(0, -1).join("/");
-          const value = await requestTextInput({ title: creating ? "New folder" : "Rename folder", label: "Folder name", defaultValue: creating ? "" : path ? (path.split("/").at(-1) ?? "") : state.snapshot.defaultConnectionFolder ?? "Default", placeholder: "Production" });
+          const value = await requestTextInput({ title: creating ? "New folder" : "Rename folder", label: "Folder name", defaultValue: creating ? "" : path ? (path.split("/").at(-1) ?? "") : state.snapshot.defaultConnectionFolder ?? "Default", placeholder: "Production" }, true);
           if (value === null) break;
           if (value.includes("/")) throw new Error("Use a folder name without /. Create subfolders with the folder’s + control.");
           const destination = folderPath(parent ? `${parent}/${value}` : value);
-          if (creating) await invoke("create_connection_folder", { path: destination });
-          else await invoke("rename_connection_folder", { path, destination });
+          if (creating) {
+            await mutateConnectionLibrary("create_connection_folder", { path: destination });
+            revealConnectionFolder(parent);
+          } else {
+            await mutateConnectionLibrary("rename_connection_folder", { path, destination });
+            remapCollapsedFolders(path, destination);
+          }
         }
-        await refreshSnapshot(false); render();
+        renderConnectionSidebar();
       } catch (error) { setError(error); }
       break;
     }
@@ -674,7 +684,7 @@ export function handleKeydown(event: KeyboardEvent): void {
   if (composingText(event)) return;
   if (event.key === "Escape" && state.folderMenuPath !== null && !state.modal) {
     const path = state.folderMenuPath; state.folderMenuPath = null;
-    event.preventDefault(); render();
+    event.preventDefault(); renderConnectionSidebar();
     root.querySelector<HTMLElement>(`[data-action="folder-actions"][data-folder="${CSS.escape(path)}"]`)?.focus();
     return;
   }
