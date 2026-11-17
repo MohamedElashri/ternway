@@ -2,8 +2,8 @@ import { icon } from "../icons.ts";
 import type { ServerProfile } from "../types.ts";
 import { escapeHtml } from "./format.ts";
 
-export function folderPath(value = ""): string {
-  return value.normalize("NFKC").replace(/[\u200B-\u200D\uFEFF]/gu, "").split("/").map(part => part.trim().replace(/\s+/gu, " ")).join("/");
+export function folderPath(value?: string | null): string {
+  return (value ?? "").normalize("NFKC").replace(/[\u200B-\u200D\uFEFF]/gu, "").split("/").map(part => part.trim().replace(/\s+/gu, " ")).join("/");
 }
 
 export interface ConnectionFolder {
