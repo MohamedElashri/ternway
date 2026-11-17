@@ -17,6 +17,8 @@ const TABLES: &[(&str,&str)] = &[
     ("server_notes","server_id,notes,updated_at"),
     ("connection_folders","path"),
     ("connection_order","server_id,position"),
+    ("connection_folder_order","path,position"),
+    ("library_preferences","name,value"),
     ("connection_identities","server_id,identity_id"),
     ("openssh_connections","server_id,reference_json"),
     ("password_references","server_id,reference_json"),
@@ -63,6 +65,8 @@ fn read(path: &Path) -> Result<(Backup, String), String> {
     // Older version 1 backups have groups but no explicit empty folders.
     backup.tables.entry("connection_folders".into()).or_default();
     backup.tables.entry("connection_order".into()).or_default();
+    backup.tables.entry("connection_folder_order".into()).or_default();
+    backup.tables.entry("library_preferences".into()).or_default();
     if backup.format != "ternway-library"
         || backup.version != 1
         || backup.tables.len() != TABLES.len()
@@ -118,7 +122,7 @@ fn dump(db: &Connection, vault: Option<Vec<u8>>) -> Result<Backup, String> {
     })
 }
 fn apply(db: &Connection, backup: &Backup) -> Result<(), String> {
-    db.execute_batch("PRAGMA defer_foreign_keys=ON; DELETE FROM servers; DELETE FROM identities; DELETE FROM saved_commands; DELETE FROM tunnels; DELETE FROM connection_folders;").map_err(|e|e.to_string())?;
+    db.execute_batch("PRAGMA defer_foreign_keys=ON; DELETE FROM servers; DELETE FROM identities; DELETE FROM saved_commands; DELETE FROM tunnels; DELETE FROM connection_folder_order; DELETE FROM connection_folders; DELETE FROM library_preferences;").map_err(|e|e.to_string())?;
     for (table, columns) in TABLES {
         let params = (1..=columns.split(',').count())
             .map(|n| format!("?{n}"))
