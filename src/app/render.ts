@@ -1,3 +1,4 @@
+import { settingsFocusKey, restoreSettingsFocus } from "./settings-pages";
 import { collapsedGroups } from "./connection-groups";
 import { unavailableToolReason } from "./navigation";
 import { icon } from "../icons";
@@ -21,10 +22,12 @@ import { scrollCommandResultsIntoView, scrollContainerLogsIntoView, viewTransiti
 
 export function render(): void {
   const previousFocus = document.activeElement;
+  const settingsFocus = settingsFocusKey(previousFocus);
   const previousConnectionForm = root.querySelector<HTMLFormElement>('form[data-form="server"]');
   const previousImportForm = root.querySelector<HTMLFormElement>('form[data-form="ssh-import"]');
   const previousPasswordForm = root.querySelector<HTMLFormElement>('form[data-form="ssh-password"]');
-  const settingsScroll = root.querySelector<HTMLElement>(".modal-settings")?.scrollTop;
+  const settingsPanel = root.querySelector<HTMLElement>(".settings-content[data-settings-page-panel]");
+  const settingsScroll = settingsPanel ? { page: settingsPanel.dataset.settingsPagePanel, top: settingsPanel.scrollTop } : undefined;
   const previousContent = root.querySelector<HTMLElement>(".dock-main") ?? root.querySelector<HTMLElement>(".content-area");
   const previousServerList = root.querySelector<HTMLElement>(".server-list");
   const previousNavigation = root.querySelector<HTMLElement>(".nav-section");
@@ -37,8 +40,8 @@ export function render(): void {
   restoreConnectionForm(root, previousConnectionForm);
   restoreConnectionForm(root, previousPasswordForm);
   restoreConnectionForm(root, previousImportForm);
-  const nextSettings = root.querySelector<HTMLElement>(".modal-settings");
-  if (nextSettings && settingsScroll !== undefined) nextSettings.scrollTop = settingsScroll;
+  const nextSettings = root.querySelector<HTMLElement>(".settings-content[data-settings-page-panel]");
+  if (nextSettings && settingsScroll && settingsScroll.page === nextSettings.dataset.settingsPagePanel) nextSettings.scrollTop = settingsScroll.top;
   const nextContent = root.querySelector<HTMLElement>(".dock-main") ?? root.querySelector<HTMLElement>(".content-area");
   const nextServerList = root.querySelector<HTMLElement>(".server-list");
   const nextNavigation = root.querySelector<HTMLElement>(".nav-section");
@@ -59,6 +62,7 @@ export function render(): void {
   state.renderedLocation = nextLocation;
   mountTerminal();
   focusModal(root, previousFocus);
+  restoreSettingsFocus(root, settingsFocus);
 }
 
 function activeGroupTitle(): string | undefined {

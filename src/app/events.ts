@@ -1,3 +1,4 @@
+import { isSettingsPage, settingsPageForKey } from "./settings-pages";
 import { openLibraryTools, applyBulkConnections, exportLibraryBackup, restoreLibraryBackup, retryEditRecovery } from "./library-tools";
 import { openTransferQueue, refreshTransferQueue, transferAction, runQueue } from "./transfer-queue";
 import { showToast } from "./toasts";
@@ -324,10 +325,14 @@ export async function runAction(action: string, target: HTMLElement = document.c
       if (key === "source" || key === "issues" || key === "releases" || key === "license") await openUrl(BRAND[key]).catch(setError);
       break;
     }
-    case "settings-jump": {
-      const section = root.querySelector<HTMLElement>(`#${target.dataset.settingsTarget}`);
-      section?.scrollIntoView({ block: "start" });
-      section?.focus({ preventScroll: true });
+    case "settings-page": {
+      const page = target.dataset.settingsPage;
+      if (!isSettingsPage(page)) break;
+      state.settingsPage = page; render();
+      root.querySelector<HTMLButtonElement>(`[data-settings-page="${page}"]`)?.focus({ preventScroll: true });
+      if (page === "about") {
+        try { await loadAboutMetadata(); if (state.modal === "security" && state.settingsPage === page) { render(); root.querySelector<HTMLButtonElement>(`[data-settings-page="${page}"]`)?.focus({ preventScroll: true }); } } catch (error) { setError(error); }
+      }
       break;
     }
     case "library-tools": await openLibraryTools(); break;
@@ -639,6 +644,12 @@ export async function handleSubmit(event: SubmitEvent): Promise<void> {
 }
 
 export function handleKeydown(event: KeyboardEvent): void {
+  const settingsTab = (event.target as HTMLElement).closest<HTMLElement>("[data-settings-page]");
+  if (settingsTab && isSettingsPage(settingsTab.dataset.settingsPage)) {
+    const next = settingsPageForKey(settingsTab.dataset.settingsPage, event.key);
+    if (next) { event.preventDefault(); event.stopPropagation(); settingsTab.dataset.settingsPage = next; void runAction("settings-page", settingsTab); return; }
+  }
+
   if (composingText(event)) return;
   const customPicker = (event.target as HTMLElement).closest<HTMLElement>(".custom-select");
   if (customPicker) {

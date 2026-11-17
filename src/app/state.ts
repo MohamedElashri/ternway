@@ -1,3 +1,4 @@
+import type { SettingsPage } from "./settings-pages";
 import { type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -86,6 +87,7 @@ export class AppState {
   hostKeyPrompt: { mismatch?: HostKeyMismatch; unknown?: HostKeyUnknown; error: string } | null = null;
   hostKeyWaiter: Promise<boolean> | null = null;
   finishHostKeyWaiter: ((trust: boolean) => void) | null = null;
+  settingsPage: SettingsPage = "appearance";
   credentialSettingsError = "";
   credentialSettingsNotice = "";
   connection: ServerConnection | null = null;

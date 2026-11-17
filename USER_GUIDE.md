@@ -206,3 +206,7 @@ omitted, the test uses SSH_AUTH_SOCK. The check enforces known_hosts, runs a fix
 read-only printf command, disconnects and removes its temporary profile store.
 A separate opt-in 1Password regression remains available. Protocol support does
 not guarantee support for every provider policy, key type or agent extension.
+
+Settings uses separate Appearance, Terminal, Connections, Security, Updates and About pages.
+Choose a page in the navigation; only that page is shown. Arrow keys, Home and End also switch
+pages when the navigation has focus. The page scrolls independently while navigation and Done stay visible.

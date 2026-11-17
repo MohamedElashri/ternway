@@ -180,7 +180,20 @@ try:
 
     click('[data-action="credential-settings"]')
     sections = execute("return Array.from(document.querySelectorAll('.settings-nav button')).map(el=>el.textContent.trim());")
-    assert sections[-1] == "About", sections
+    assert sections == ['Appearance', 'Terminal', 'Connections', 'Security', 'Updates', 'About'], sections
+    assert execute("return document.querySelectorAll('.settings-group').length===1 && !!document.querySelector('#settings-appearance') && !document.querySelector('#settings-terminal');")
+    click('[data-settings-page="terminal"]')
+    assert execute("return !!document.querySelector('[data-field=terminal-renderer]') && !document.querySelector('#settings-appearance');")
+    click('[data-settings-page="security"]')
+    assert execute("return !!document.querySelector('[data-action=lock-vault]') && !document.querySelector('[data-field=terminal-renderer]');")
+    click('[data-settings-page="about"]')
+    wait(lambda: execute("return !!document.querySelector('.settings-content .about-details') && !document.querySelector('#settings-security');"), 'About settings page')
+    click('[data-settings-page="appearance"]')
+    request('POST', f'/session/{session}/window/rect', {'width':640, 'height':480})
+    assert execute("const modal=document.querySelector('.modal-settings'), nav=document.querySelector('.settings-nav'), footer=document.querySelector('.settings-footer');return modal.scrollHeight<=modal.clientHeight+1 && nav.getBoundingClientRect().top>=0 && footer.getBoundingClientRect().bottom<=window.innerHeight;")
+    screenshot('settings-pages-narrow.png')
+    request('POST', f'/session/{session}/window/rect', {'width':1400, 'height':900})
+    screenshot('settings-pages.png')
     click('[data-action="close-modal"]')
     click('[data-action="theme"]')
     if execute("return document.querySelector('[data-theme]')?.dataset.theme;") != "dark":

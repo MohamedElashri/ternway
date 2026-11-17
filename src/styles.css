@@ -742,3 +742,17 @@ h1 { margin-bottom: 0; font: 600 35px/1.05 var(--font-display); letter-spacing: 
 .shutdown-freeze strong { font: 600 20px/1.4 var(--font-ui); }
 .shutdown-freeze p { margin: 12px 0 20px; line-height: 1.6; }
 .shutdown-freeze .button { color: #1d2939; border-color: #98a2b3; }
+/* Settings pages keep navigation and Done visible while the current page scrolls. */
+.modal-settings { display: flex; flex-direction: column; height: min(720px, calc(100vh - 48px)); overflow: hidden; }
+.settings-layout { flex: 1; min-height: 0; }
+.settings-nav { position: static; align-self: stretch; overflow-y: auto; }
+.settings-nav .button[aria-current="page"] { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+.settings-content { overflow-y: auto; overscroll-behavior: contain; }
+.settings-content .about-content { padding: 0; }
+.settings-group { margin: 0; padding: 0; border: 0; }
+@media (max-width: 650px) {
+  .modal-settings { height: min(720px, calc(100vh - 24px)); }
+  .settings-layout { grid-template-rows: auto minmax(0, 1fr); }
+  .settings-nav { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
+  .settings-nav .button { flex: 0 0 auto; }
+}
