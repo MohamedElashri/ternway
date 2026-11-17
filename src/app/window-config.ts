@@ -1,12 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { TerminalConfig } from "./config";
 
+export interface WindowMetrics { cellWidth: number; cellHeight: number; chromeWidth: number; chromeHeight: number; dark: boolean; defaultDecorations?: boolean }
 export interface WindowConfigState {
   title: string | null; fullscreen: boolean | null; windowDecoration: boolean | null;
   windowTheme: TerminalConfig["windowTheme"]; windowWidth: number | null; windowHeight: number | null;
 }
 /** Only changed geometry is reapplied: saving an unrelated preference must not resize a window. */
-export function windowSettings(config: TerminalConfig, previous: WindowConfigState | undefined, metrics: { cellWidth: number; cellHeight: number; chromeWidth: number; chromeHeight: number; dark: boolean; defaultDecorations?: boolean }): object {
+export function windowSettings(config: TerminalConfig, previous: WindowConfigState | undefined, metrics: WindowMetrics): object {
   return {
     title: config.title ?? "Ternway",
     fullscreen: previous?.fullscreen === config.fullscreen ? null : config.fullscreen ?? (previous?.fullscreen !== undefined && previous.fullscreen !== null ? false : null),
@@ -16,12 +17,27 @@ export function windowSettings(config: TerminalConfig, previous: WindowConfigSta
     height: config.windowHeight !== null && previous?.windowHeight !== config.windowHeight ? Math.max(480, config.windowHeight * metrics.cellHeight + metrics.chromeHeight) : config.windowHeight === null && previous?.windowHeight != null ? 780 : null,
   };
 }
-let previous: WindowConfigState | undefined;
+/** Compute deltas after the previous IPC finishes, so a late old response cannot reset them. */
+export class WindowConfigQueue {
+  private previous: WindowConfigState | undefined;
+  private pending: Promise<void> = Promise.resolve();
+  private readonly apply: (settings: object) => Promise<void>;
+  constructor(apply: (settings: object) => Promise<void>) { this.apply = apply; }
+  enqueue(config: TerminalConfig, metrics: WindowMetrics): Promise<void> {
+    const task = this.pending.then(async () => {
+      await this.apply(windowSettings(config, this.previous, metrics));
+      this.previous = { ...config };
+    });
+    this.pending = task.catch(() => undefined);
+    return task;
+  }
+}
+const windowConfigs = new WindowConfigQueue(settings => invoke("configure_terminal_window", { settings }));
 export async function applyWindowConfig(config: TerminalConfig, fontSize: number, fontFamily: string, dark: boolean): Promise<void> {
   const context = document.createElement("canvas").getContext("2d");
   if (context) context.font = `${fontSize}px ${fontFamily}`;
   const sidebar = document.querySelector<HTMLElement>(".sidebar");
-  const settings = windowSettings(config, previous, {
+  await windowConfigs.enqueue(config, {
     cellWidth: context?.measureText("M").width ?? fontSize * .6,
     cellHeight: Math.ceil(fontSize * 1.25),
     chromeWidth: (sidebar?.getBoundingClientRect().width ?? 250) + 22,
@@ -29,6 +45,4 @@ export async function applyWindowConfig(config: TerminalConfig, fontSize: number
     dark,
     defaultDecorations: /linux/i.test(navigator.platform || navigator.userAgent),
   });
-  await invoke("configure_terminal_window", { settings });
-  previous = { ...config };
 }

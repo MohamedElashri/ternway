@@ -1,3 +1,4 @@
+import { TerminalClipboardRequests } from "./terminal-clipboard";
 import { reconnectSession } from "./terminal-reconnect";
 import { shutdownFrozen } from "./shutdown-freeze";
 import { ClipboardHistory } from "./clipboard-history";
@@ -31,7 +32,14 @@ export const focusedSurface = (): TerminalSurface | undefined => state.activeTer
 
 export function createTerminalSurface(tab: TerminalTab): TerminalSurface {
   const appearance = terminalAppearance(tab.profile);
-  let clipboardPending = false;
+  const clipboard = new TerminalClipboardRequests({
+    session: () => state.terminalTabs.includes(tab) && !tab.closed && !shutdownFrozen() ? tab.sessionId ?? null : null,
+    permission: read => read ? profileConfig(tab.profile).clipboardRead : profileConfig(tab.profile).clipboardWrite,
+    confirm: read => confirm(`Allow the program in this terminal to ${read ? "read" : "write"} your clipboard?`, { title: "Terminal clipboard access", kind: "warning" }),
+    read: readText,
+    write: writeText,
+    reply: (session, data) => queueTerminalInput(session, data),
+  });
   const surface = new TerminalSurface({
     // New panes inherit the focused pane's font size, like Ghostty's window-inherit-font-size.
     appearance: { ...appearance, fontSize: profileConfig(tab.profile).windowInheritFontSize ? focusedSurface()?.fontSize ?? appearance.fontSize : appearance.fontSize },
@@ -43,22 +51,7 @@ export function createTerminalSurface(tab: TerminalTab): TerminalSurface {
       rememberClipboard(text);
       void writeText(text).catch(() => undefined);
     },
-    onClipboard: request => {
-      const permission = request.read ? profileConfig(tab.profile).clipboardRead : profileConfig(tab.profile).clipboardWrite;
-      if (clipboardPending || permission === "deny" || (request.selection !== "" && request.selection !== "c")) return;
-      clipboardPending = true;
-      void (async () => {
-        if (permission === "ask" && !(await confirm(`Allow the program in this terminal to ${request.read ? "read" : "write"} your clipboard?`, { title: "Terminal clipboard access", kind: "warning" }))) return;
-        if (!state.terminalTabs.includes(tab) || tab.closed) return;
-        if (request.read) {
-          const text = await readText();
-          const bytes = new TextEncoder().encode(text);
-          if (bytes.length > 48000 || !tab.sessionId || tab.closed) return;
-          const payload = btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(""));
-          queueTerminalInput(tab.sessionId, `\x1b]52;${request.selection};${payload}\x07`);
-        } else if (typeof request.text === "string") await writeText(request.text);
-      })().catch(setError).finally(() => { clipboardPending = false; });
-    },
+    onClipboard: request => { void clipboard.enqueue(request).catch(setError); },
     onPaste: text => { void pasteWithProtection(surface, text).catch(setError); },
     onFocus: () => focusPane(tab.id, false),
     onOpenUrl: (url) => { void openUrl(url).catch(setError); },

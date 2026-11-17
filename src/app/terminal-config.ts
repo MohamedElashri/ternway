@@ -41,6 +41,7 @@ export function terminalAppearance(profile?: string): TerminalAppearance {
     cursorBlink: config.cursorBlink ?? true,
     macOptionIsMeta: config.macosOptionAsAlt,
     scrollback: config.scrollbackLimit,
+    imageStorageMb: config.imageStorageLimit / 1_000_000,
     adjustUnderlinePosition: config.adjustUnderlinePosition,
     clickRepeatInterval: config.clickRepeatInterval,
     resizeOverlay: config.resizeOverlay,
