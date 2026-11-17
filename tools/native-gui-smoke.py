@@ -13,6 +13,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from native_webdriver import request as webdriver_request
 
 if not sys.platform.startswith("linux"):
     raise SystemExit("Run this harness on an isolated Linux test runner.")
@@ -27,27 +28,23 @@ os.environ.update({"XDG_CONFIG_HOME": str(root / "config"), "XDG_DATA_HOME": str
 os.environ['TERNWAY_QA_KNOWN_HOSTS'] = str(root / 'known_hosts')
 config = root / "config" / "ternway"
 config.mkdir()
-(config / "config").write_text("shell-integration = none\nwindow-save-state = always\nsave-scrollback = false\nclipboard-history = false\n")
+(config / "config").write_text("command = /bin/sh\nenv = PS1=CI_TEST_PROMPT\nshell-integration = none\nwindow-save-state = always\nsave-scrollback = true\nclipboard-history = false\n")
 log = (artifacts / "driver.log").open("w")
-driver = subprocess.Popen(["tauri-driver", "--native-driver", "/usr/bin/WebKitWebDriver"], stdout=log, stderr=log, start_new_session=True)
-base = "http://127.0.0.1:4444"
+reserved=[socket.socket(),socket.socket()]
+for listener in reserved:listener.bind(('127.0.0.1',0))
+driver_port,native_port=[listener.getsockname()[1] for listener in reserved]
+for listener in reserved:listener.close()
+driver = subprocess.Popen(["tauri-driver", "--port", str(driver_port), "--native-port", str(native_port), "--native-driver", "/usr/bin/WebKitWebDriver"], stdout=log, stderr=log, start_new_session=True)
+base = f"http://127.0.0.1:{driver_port}"
+verified_app = False
 session = None
 fixture = None
 fixture_log = None
 checks = []
 
-def request(method, path, body=None):
-    data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(base + path, data=data, method=method, headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=35) as response:
-            value = json.load(response).get("value")
-    except urllib.error.HTTPError as error:
-        detail = json.loads(error.read()).get("value", {})
-        raise RuntimeError(str(detail)) from error
-    if isinstance(value, dict) and value.get("error"):
-        raise RuntimeError(str(value))
-    return value
+def request(method, path, body=None, *, idempotent=False):
+    if driver.poll() is not None: raise RuntimeError("Owned test driver exited; refusing to contact another process")
+    return webdriver_request(base,method,path,body,idempotent=idempotent,alive=lambda:driver.poll() is None)
 
 def wait(test, description, timeout=30):
     deadline = time.monotonic() + timeout
@@ -64,11 +61,16 @@ def wait(test, description, timeout=30):
         time.sleep(0.15)
     raise AssertionError(f"Timed out: {description}: {last}")
 
-def execute(script, *args):
-    return request("POST", f"/session/{session}/execute/sync", {"script": script, "args": list(args)})
+def execute(script, *args, idempotent=False):
+    return request("POST", f"/session/{session}/execute/sync", {"script": script, "args": list(args)},idempotent=idempotent)
+
+def read(script, *args):
+    """Only call with read-only DOM queries; never input, clicks, or IPC writes."""
+    return execute(script,*args,idempotent=True)
 
 def invoke(command, **args):
-    result = request("POST", f"/session/{session}/execute/async", {"script": "const done=arguments[arguments.length-1]; window.__TAURI_INTERNALS__.invoke(arguments[0],arguments[1]).then(value=>done({ok:true,value}),error=>done({ok:false,error}));", "args": [command, args]})
+    read_only = command in {'get_state','list_workspaces','list_transfer_jobs','terminal_activities','read_clipboard_text','preview_library_backup','read_remote_file','list_remote_files'}
+    result = request("POST", f"/session/{session}/execute/async", {"script": "const done=arguments[arguments.length-1]; window.__TAURI_INTERNALS__.invoke(arguments[0],arguments[1]).then(value=>done({ok:true,value}),error=>done({ok:false,error}));", "args": [command, args]},idempotent=read_only)
     if not result["ok"]:
         raise RuntimeError(str(result["error"]))
     return result.get("value")
@@ -81,7 +83,7 @@ def click(selector):
     deadline = time.monotonic() + 30
     def prepare():
         target = element(selector)
-        present = execute("const el=document.querySelector(arguments[0]); if(!el) return false; el.scrollIntoView({block:'center'}); return true;", selector)
+        present = execute("const el=document.querySelector(arguments[0]); if(!el) return false; el.scrollIntoView({block:'center'}); return true;", selector,idempotent=True)
         return target if present else None
     while time.monotonic() < deadline:
         # Lookup/scroll are safe to retry if WebKit resets its connection during
@@ -98,15 +100,15 @@ def click(selector):
     raise AssertionError(f'Continuously replaced click target: {selector}')
 
 def type_into(selector, text):
-    target = element(selector)
+    target = wait(lambda: element(selector), f'input ready: {selector}')
     request("POST", f"/session/{session}/element/{target}/clear", {})
     request("POST", f"/session/{session}/element/{target}/value", {"text": text, "value": list(text)})
 
 def shown(selector):
-    return execute("const el=document.querySelector(arguments[0]);return !!el && !!el.getClientRects().length;", selector)
+    return read("const el=document.querySelector(arguments[0]);return !!el && !!el.getClientRects().length;", selector)
 
 def compact_terminal_geometry():
-    result = execute("""
+    result = read("""
       const surface=document.querySelector('[data-terminal-surface]'), content=document.querySelector('.content-area');
       const frame=content.getBoundingClientRect(), terminal=surface.getBoundingClientRect();
       const tabs=document.querySelector('.workspace-tabbar').getBoundingClientRect();
@@ -122,7 +124,8 @@ def compact_terminal_geometry():
     return result
 
 def start():
-    global session
+    global session, verified_app
+    verified_app = False
     # WebKit resets pooled HTTP connections when the previous application exits.
     # A safe status read establishes readiness before the one-shot session POST.
     wait(lambda: request("GET", "/status").get("ready"), "native driver ready for a new session")
@@ -130,6 +133,7 @@ def start():
     session = response["sessionId"]
     request("POST", f"/session/{session}/timeouts", {"script": 30000, "pageLoad": 30000, "implicit": 0})
     wait(lambda: shown('[data-action="credential-settings"]'), "app bootstrap")
+    verified_app = True
 
 def screenshot(name):
     value = request("GET", f"/session/{session}/screenshot")
@@ -149,43 +153,75 @@ try:
     wait(lambda: request("GET", "/status") is not None, "driver startup")
     start()
     def check_startup_size():
-        size = wait(lambda: execute("return {width:window.innerWidth,height:window.innerHeight};"), "startup window geometry")
+        size = wait(lambda: read("return {width:window.innerWidth,height:window.innerHeight};"), "startup window geometry")
         assert 1100 <= size['width'] <= 1440 and 700 <= size['height'] <= 900, size
     check_startup_size()
     check('fresh native window opens at its configured usable size')
-    wait(lambda: element('.xterm-helper-textarea'), 'initial local shell')
+    wait(lambda: element('.ghostty-input'), 'initial local shell')
     click('.term-tab-close')
     wait(lambda: shown('.terminal-empty') or shown('[data-app-dialog]'), 'close final local terminal')
     if shown('[data-app-dialog]'):
         click('[data-action="accept-app-dialog"]')
     wait(lambda: shown('.terminal-empty'), 'last local shell stays closed')
-    assert execute("return document.querySelectorAll('.terminal-host').length;") == 0
+    assert read("return document.querySelectorAll('.terminal-host').length;") == 0
     click('[data-workspace-close="local"]')
     wait(lambda: not shown('.workspace-tab-local'), 'local workspace closes')
     click('[data-action="open-local"]')
-    wait(lambda: element('.xterm-helper-textarea'), 'explicitly reopen local workspace')
-    assert execute("return document.querySelectorAll('.term-tab').length;") == 1
+    wait(lambda: element('.ghostty-input'), 'explicitly reopen local workspace')
+    assert read("return document.querySelectorAll('.term-tab').length;") == 1
     check('last local terminal and Local workspace close without replacement shells and reopen explicitly')
-    textarea = wait(lambda: element('.xterm-helper-textarea'), "local terminal")
+    textarea = wait(lambda: element('.ghostty-input'), "local terminal")
     # The marker is encoded in the command so shell echo cannot satisfy this assertion.
     expected = "CI_NATIVE_λ_漢字"
     escaped = ''.join('\\%03o' % byte for byte in expected.encode())
     request("POST", f"/session/{session}/element/{textarea}/value", {"text": f"printf '{escaped}\\n'\n"})
-    wait(lambda: execute("return document.querySelector('.terminal-layer')?.textContent?.includes(arguments[0]) || Array.from(document.querySelectorAll('.xterm-rows')).some(el=>el.textContent.includes(arguments[0]));", expected), "real PTY Unicode output")
+    wait(lambda: read("return document.querySelector('.terminal-layer')?.textContent?.includes(arguments[0]) || Array.from(document.querySelectorAll('.ghostty-accessibility')).some(el=>el.textContent.includes(arguments[0]));", expected), "real PTY Unicode output")
+    assert read("return !!document.querySelector('.ghostty-terminal[data-engine=libghostty-vt-native] canvas') && !document.querySelector('.xterm');")
     check("native WebKitGTK terminal accepts input and renders UTF-8 process output")
+    request('POST', f'/session/{session}/actions', {'actions':[{'type':'key','id':'search-keys','actions':[
+        {'type':'keyDown','value':'\ue009'}, {'type':'keyDown','value':'\ue008'},
+        {'type':'keyDown','value':'f'}, {'type':'keyUp','value':'f'},
+        {'type':'keyUp','value':'\ue008'}, {'type':'keyUp','value':'\ue009'}]}]})
+    search_input = wait(lambda: element('.terminal-search:not([hidden]) input'), 'native scrollback search')
+    request('POST', f'/session/{session}/element/{search_input}/value', {'text': expected})
+    wait(lambda: read("return document.querySelector('.terminal-search-count')?.textContent==='1/1';"), 'Unicode match in native scrollback')
+    screenshot('native-ghostty-search.png')
+    click('[data-search="regex"]')
+    type_into('.terminal-search:not([hidden]) input', '[')
+    wait(lambda:read("return document.querySelector('.terminal-search-count')?.textContent.startsWith('Search:');"),'invalid regex reported without waiting for terminal output')
+    screenshot('native-ghostty-invalid-search.png')
+    type_into('.terminal-search:not([hidden]) input', expected)
+    wait(lambda:read("return document.querySelector('.terminal-search-count')?.textContent==='1/1';"),'search recovers from invalid regex')
+    click('[data-search="regex"]')
+    click('[data-search="close"]')
+    check('native scrollback search finds real Unicode PTY output and highlights its cells')
+    textarea = wait(lambda: element('.ghostty-input'), 'terminal after search')
+    request('POST', f'/session/{session}/element/{textarea}/value', {'text': 'sleep 30\n'})
+    prompt_count=read("return (document.querySelector('.terminal-layer')?.textContent.match(/CI_TEST_PROMPT/g)||[]).length;")
+    request('POST', f'/session/{session}/actions', {'actions':[{'type':'key','id':'interrupt-keys','actions':[
+        {'type':'keyDown','value':'\ue009'}, {'type':'keyDown','value':'c'},
+        {'type':'keyUp','value':'c'}, {'type':'keyUp','value':'\ue009'}]}]})
+    wait(lambda:read("return (document.querySelector('.terminal-layer')?.textContent.match(/CI_TEST_PROMPT/g)||[]).length>arguments[0];",prompt_count),'shell prompt after interrupt')
+    interrupted = 'CI_NATIVE_INTERRUPT'
+    interrupt_escaped = ''.join('\\%03o' % byte for byte in interrupted.encode())
+    request('POST', f'/session/{session}/element/{textarea}/value', {'text': f"printf '{interrupt_escaped}\\n'\n"})
+    wait(lambda: read("return Array.from(document.querySelectorAll('.ghostty-accessibility')).some(el=>el.textContent.includes(arguments[0]));", interrupted), 'native Ctrl+C interrupts the running process', timeout=12)
+    check('Control reaches the native keyboard encoder and interrupts a real shell process')
+    import native_terminal_review
+    native_terminal_review.run(globals())
     for width, height in [(1000, 700), (1280, 850), (1080, 720), (1400, 900)]:
         request("POST", f"/session/{session}/window/rect", {"width": width, "height": height})
     check("window resizing keeps the terminal alive")
 
     click('[data-action="new-terminal"]')
-    tab_ids = wait(lambda: execute("const tabs=Array.from(document.querySelectorAll('.term-tab')); return tabs.length===2 && tabs.map(el=>el.dataset.tabGroup);"), 'second local terminal tab')
-    drag_points = execute("""
+    tab_ids = wait(lambda: read("const tabs=Array.from(document.querySelectorAll('.term-tab')); return tabs.length===2 && tabs.map(el=>el.dataset.tabGroup);"), 'second local terminal tab')
+    drag_points = read("""
       const tab=document.querySelector('.term-tab').getBoundingClientRect();
       const surface=document.querySelector('[data-terminal-surface]').getBoundingClientRect();
       return {x:Math.round(tab.left+30), y:Math.round(tab.top+tab.height/2),
         endX:Math.round(surface.right-30), endY:Math.round(surface.top+60)};
     """)
-    # The xterm overlay is outside the app root. Pointer capture must retain
+    # The terminal overlay is outside the app root. Pointer capture must retain
     # the release when a tab is dragged over it, just as outside the window.
     request('POST', f'/session/{session}/actions', {'actions':[{'type':'pointer', 'id':'tab-drag', 'parameters':{'pointerType':'mouse'}, 'actions':[
         {'type':'pointerMove', 'duration':0, 'origin':'viewport', 'x':drag_points['x'], 'y':drag_points['y']},
@@ -193,34 +229,37 @@ try:
         {'type':'pointerMove', 'duration':250, 'origin':'viewport', 'x':drag_points['endX'], 'y':drag_points['endY']},
         {'type':'pointerUp', 'button':0},
     ]}]})
-    wait(lambda: execute("return Array.from(document.querySelectorAll('.term-tab')).map(el=>el.dataset.tabGroup).join(',')===arguments[0];", ','.join(reversed(tab_ids))), 'terminal drag completes over the terminal overlay')
+    wait(lambda: read("return Array.from(document.querySelectorAll('.term-tab')).map(el=>el.dataset.tabGroup).join(',')===arguments[0];", ','.join(reversed(tab_ids))), 'terminal drag completes over the terminal overlay')
     request('DELETE', f'/session/{session}/actions')
     click(f'.term-tab[data-tab-group="{tab_ids[0]}"]')
-    wait(lambda: execute("return document.querySelector('.term-tab.active')?.dataset.tabGroup===arguments[0] && !document.querySelector('.term-tab.dragging,.term-tab.drop-before,.term-tab.drop-after');", tab_ids[0]), 'next tab click remains responsive')
+    wait(lambda: read("return document.querySelector('.term-tab.active')?.dataset.tabGroup===arguments[0] && !document.querySelector('.term-tab.dragging,.term-tab.drop-before,.term-tab.drop-after');", tab_ids[0]), 'next tab click remains responsive')
     check('terminal tabs finish drag over the terminal overlay and accept the next ordinary click')
 
     click('[data-action="credential-settings"]')
-    sections = execute("return Array.from(document.querySelectorAll('.settings-nav button')).map(el=>el.textContent.trim());")
+    sections = read("return Array.from(document.querySelectorAll('.settings-nav button')).map(el=>el.textContent.trim());")
     assert sections == ['Appearance', 'Terminal', 'Connections', 'Security', 'Updates', 'About'], sections
-    assert execute("return document.querySelectorAll('.settings-group').length===1 && !!document.querySelector('#settings-appearance') && !document.querySelector('#settings-terminal');")
+    assert read("return document.querySelectorAll('.settings-group').length===1 && !!document.querySelector('#settings-appearance') && !document.querySelector('#settings-terminal');")
     click('[data-settings-page="terminal"]')
-    assert execute("return !!document.querySelector('[data-field=terminal-renderer]') && !document.querySelector('#settings-appearance');")
+    assert read("return !!document.querySelector('[data-native-terminal]') && !document.querySelector('#settings-appearance');")
     click('[data-settings-page="security"]')
-    assert execute("return !!document.querySelector('[data-action=lock-vault]') && !document.querySelector('[data-field=terminal-renderer]');")
+    assert read("return !!document.querySelector('[data-action=lock-vault]') && !document.querySelector('[data-native-terminal]');")
     click('[data-settings-page="about"]')
-    wait(lambda: execute("return !!document.querySelector('.settings-content .about-details') && !document.querySelector('#settings-security');"), 'About settings page')
+    wait(lambda: read("return !!document.querySelector('.settings-content .about-details') && !document.querySelector('#settings-security');"), 'About settings page')
+    assert read("return document.querySelector('.about-details')?.textContent.includes('libghostty-vt 1.0.1 (native)');")
     click('[data-settings-page="appearance"]')
     request('POST', f'/session/{session}/window/rect', {'width':640, 'height':480})
-    assert execute("const modal=document.querySelector('.modal-settings'), nav=document.querySelector('.settings-nav'), footer=document.querySelector('.settings-footer');return modal.scrollHeight<=modal.clientHeight+1 && nav.getBoundingClientRect().top>=0 && footer.getBoundingClientRect().bottom<=window.innerHeight;")
+    assert read("const modal=document.querySelector('.modal-settings'), nav=document.querySelector('.settings-nav'), footer=document.querySelector('.settings-footer');return modal.scrollHeight<=modal.clientHeight+1 && nav.getBoundingClientRect().top>=0 && footer.getBoundingClientRect().bottom<=window.innerHeight;")
     screenshot('settings-pages-narrow.png')
     request('POST', f'/session/{session}/window/rect', {'width':1400, 'height':900})
     screenshot('settings-pages.png')
+    import native_ui_review
+    native_ui_review.run(globals())
 
     assert sections[-1] == "About", sections
-    assert execute("return document.querySelector('#app').dataset.colorTheme;") == 'github-dark'
+    assert read("return document.querySelector('#app').dataset.colorTheme;") == 'github-dark'
     theme_backgrounds = [('github-light','#ffffff'), ('github-dark','#0d1117'), ('github-dark-dimmed','#22272e'), ('github-light-high-contrast','#ffffff'), ('github-dark-high-contrast','#0a0c10'), ('github-light-colorblind','#ffffff'), ('github-dark-colorblind','#0d1117'), ('dracula','#282a36')]
     def primary_button_metrics():
-        return execute("""
+        return read("""
           const button=document.querySelector('.settings-footer .button-primary'),style=getComputedStyle(button),rect=button.getBoundingClientRect();
           const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const context=canvas.getContext('2d');
           const rgb=color=>{context.clearRect(0,0,1,1);context.fillStyle=color;context.fillRect(0,0,1,1);return [...context.getImageData(0,0,1,1).data].slice(0,3);};
@@ -232,30 +271,30 @@ try:
         request('POST', f'/session/{session}/actions', {'actions':[{'type':'pointer','id':'button-hover','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':0,'origin':'viewport','x':int(x),'y':int(y)}]}]})
     for theme_id, background in theme_backgrounds:
         click(f'[data-theme-id="{theme_id}"]')
-        wait(lambda: execute("return document.querySelector('#app').dataset.colorTheme===arguments[0] && getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()===arguments[1];", theme_id, background), f'live {theme_id} workspace and terminal palette')
-        assert execute("return document.querySelector('.terminal-layer').textContent.includes(arguments[0]);", expected), 'Theme changes preserve terminal output'
+        wait(lambda: read("return document.querySelector('#app').dataset.colorTheme===arguments[0] && getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()===arguments[1];", theme_id, background), f'live {theme_id} workspace and terminal palette')
+        assert read("return document.querySelector('.terminal-layer').textContent.includes(arguments[0]);", "REVIEW_MOUSE_OK"), 'Theme changes preserve terminal output'
         hover_point(5,5)
         normal=wait(lambda: (value if (value:=primary_button_metrics())['background']==value['accent'] else None), 'normal button palette')
-        assert normal['contrast']>=4.5 and normal['height']==34 and normal['shadow']=='none', (theme_id,normal)
+        assert normal['contrast']>=4.5 and abs(normal['height']-34)<0.1 and normal['shadow']=='none', (theme_id,normal)
         hover_point(normal['x'],normal['y'])
         hovered=wait(lambda: (value if (value:=primary_button_metrics())['background']!=normal['background'] else None), 'button hover palette')
-        assert hovered['contrast']>=4.5 and hovered['transform']=='none' and hovered['top']==normal['top'], (theme_id,hovered)
+        assert hovered['contrast']>=4.5 and hovered['transform']=='none' and abs(hovered['top']-normal['top'])<0.1, (theme_id,hovered)
         if theme_id in ['github-dark','github-light']:
             screenshot(theme_id + '.png')
     original_config = (config / 'config').read_text()
     (config / 'config').write_text(original_config + 'background = #123456\n')
-    wait(lambda: execute("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#123456';"), 'explicit terminal color applied')
+    wait(lambda: read("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#123456';"), 'explicit terminal color applied')
     click('[data-theme-id="github-light"]')
-    wait(lambda: execute("return document.querySelector('#app').dataset.colorTheme==='github-light' && getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#123456';"), 'terminal config color survives workspace theme change')
+    wait(lambda: read("return document.querySelector('#app').dataset.colorTheme==='github-light' && getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#123456';"), 'terminal config color survives workspace theme change')
     (config / 'config').write_text(original_config)
-    wait(lambda: execute("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#ffffff';"), 'terminal returns to preset after removing color override')
+    wait(lambda: read("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#ffffff';"), 'terminal returns to preset after removing color override')
     click('[data-theme-id="github-dark-dimmed"]')
-    wait(lambda: execute("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#22272e';"), 'dimmed palette restored')
+    wait(lambda: read("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#22272e';"), 'dimmed palette restored')
     check('all built-in themes apply live; primary buttons retain text contrast and stable hover geometry in every theme')
     click('[data-action="close-modal"]')
-    assert execute("return document.querySelectorAll('[data-action=theme]').length;") == 1
+    assert read("return document.querySelectorAll('[data-action=theme]').length;") == 1
     click('[data-action="theme"]')
-    if execute("return document.querySelector('[data-theme]')?.dataset.theme;") != "dark":
+    if read("return document.querySelector('[data-theme]')?.dataset.theme;") != "dark":
         click('[data-action="theme"]')
     check("settings order and native dark-mode controls")
 
@@ -267,8 +306,8 @@ try:
     type_into('[data-form="server"] [name="port"]', str(port))
     type_into('[data-form="server"] [name="password"]', 'disposable privacy fixture')
     invoke('lock_credentials')
-    wait(lambda: execute("return !!document.querySelector('[data-form=server]') && document.querySelector('[data-form=server] [name=password]').value==='';"), 'credential lock clears secrets without losing the draft')
-    assert execute("return document.querySelector('[data-form=server] [name=name]').value==='CI save only' && document.querySelector('[data-form=server] [name=host]').value==='127.0.0.1';")
+    wait(lambda: read("return !!document.querySelector('[data-form=server]') && document.querySelector('[data-form=server] [name=password]').value==='';"), 'credential lock clears secrets without losing the draft')
+    assert read("return document.querySelector('[data-form=server] [name=name]').value==='CI save only' && document.querySelector('[data-form=server] [name=host]').value==='127.0.0.1';")
     check('credential locking clears password fields and retains the unsaved connection')
     click('[data-form="server"] button[type="submit"]')
     wait(lambda: not shown('[data-form="server"]'), "save-only connection")
@@ -286,9 +325,9 @@ try:
         click('[data-action="import-ssh-config"]')
         type_into('[data-form="ssh-import"] [name="path"]', str(ssh_config))
         click('[data-action="load-ssh-config"]')
-        wait(lambda: execute("return document.querySelectorAll('.import-host').length===2;"), "SSH config preview")
-        assert execute("return Array.from(document.querySelectorAll('.import-host')).filter(el=>el.textContent.includes('github.com')).every(el=>!el.querySelector('input').checked);")
-        contrast = execute(r"""
+        wait(lambda: read("return document.querySelectorAll('.import-host').length===2;"), "SSH config preview")
+        assert read("return Array.from(document.querySelectorAll('.import-host')).filter(el=>el.textContent.includes('github.com')).every(el=>!el.querySelector('input').checked);")
+        contrast = read(r"""
           const el=document.querySelector('.import-host strong');
           const rgb=value=>(value.match(/[\d.]+/g)||[]).map(Number);
           const fg=rgb(getComputedStyle(el).color);
@@ -299,7 +338,7 @@ try:
         assert contrast >= 4.5, f"Dark import text contrast is too low: {contrast}"
         click('[data-form="ssh-import"] button[type="submit"]')
         wait(lambda: len(invoke("get_state")["servers"]) == 2, "duplicate-safe import")
-        wait(lambda: execute("return document.querySelector('[data-import-error]')?.textContent.includes('Imported');"), "visible import completion")
+        wait(lambda: read("return document.querySelector('[data-import-error]')?.textContent.includes('Imported');"), "visible import completion")
         screenshot(f"ssh-import-dark-{attempt}.png")
         click('[data-action="close-modal"]')
     check("native SSH import excludes Git by default, stays readable and deduplicates repeat imports")
@@ -313,8 +352,10 @@ try:
         click('[data-form="input-prompt"] button[type="submit"]')
         path = f'{parent}/{name}' if parent else name
         wait(lambda: path in invoke('get_state')['connectionFolders'], 'inline folder create')
+        wait(lambda: shown(folder_selector(path)), 'created folder rendered')
     def sidebar_drag(source, target, after=False):
-        points = execute("const a=document.querySelector(arguments[0]),b=document.querySelector(arguments[1]);a.scrollIntoView({block:'nearest'});b.scrollIntoView({block:'nearest'});const r=a.getBoundingClientRect(),s=b.getBoundingClientRect();return {x:r.left+25,y:r.top+r.height/2,tx:s.left+25,ty:s.top+s.height*(arguments[2] ? 0.75 : 0.25)};", source, target, after)
+        wait(lambda: shown(source) and shown(target), 'drag source and target rendered after persistence')
+        points = execute("const a=document.querySelector(arguments[0]),b=document.querySelector(arguments[1]);a.scrollIntoView({block:'nearest'});b.scrollIntoView({block:'nearest'});const r=a.getBoundingClientRect(),s=b.getBoundingClientRect();return {x:r.left+25,y:r.top+r.height/2,tx:s.left+25,ty:s.top+s.height*(arguments[2] ? 0.75 : 0.25)};", source, target, after,idempotent=True)
         request('POST', f'/session/{session}/actions', {'actions':[{'type':'pointer','id':'sidebar-drag','parameters':{'pointerType':'mouse'},'actions':[
           {'type':'pointerMove','duration':0,'origin':'viewport','x':int(points['x']),'y':int(points['y'])},
           {'type':'pointerDown','button':0},
@@ -347,16 +388,19 @@ try:
     click('[data-action="accept-app-dialog"]')
     wait(lambda: 'Temporary' not in invoke('get_state')['connectionFolders'], 'folder removed')
     assert next(server for server in invoke('get_state')['servers'] if server['id']==other_connection['id'])['groupName'] is None
-    assert shown(f'.default-folder .server-item[data-server-id="{other_connection["id"]}"]')
+    wait(lambda: shown(f'.default-folder .server-item[data-server-id="{other_connection["id"]}"]'), 'deleted-folder contents rendered in default folder')
     sidebar_drag(f'.server-item[data-server-id="{other_connection["id"]}"]', '[data-folder-path="Company/Production"]')
     wait(lambda: next(server for server in invoke('get_state')['servers'] if server['id']==other_connection['id'])['groupName']=='Company/Production', 'move back from default folder')
-    original_order = execute("return Array.from(document.querySelectorAll('[data-connection-group=\"folder:company/production\"] .server-item')).map(row=>row.dataset.serverId);")
+    def rendered_connection_order():
+        order=read("return Array.from(document.querySelectorAll('[data-connection-group=\"folder:company/production\"] .server-item')).map(row=>row.dataset.serverId);")
+        return order if len(order)==2 else None
+    original_order = wait(rendered_connection_order, 'both moved connections rendered before reordering')
     sidebar_drag(f'.server-item[data-server-id="{original_order[0]}"]', f'.server-item[data-server-id="{original_order[1]}"]', after=True)
     wait(lambda: invoke('get_state')['connectionOrder']==list(reversed(original_order)), 'drag connection order persists')
     click('[data-action="create-connection-folder"][data-parent=""]')
     click('[data-form="input-prompt"] [data-action="close-modal"]')
     assert shown('[data-folder-path=""]'), 'Cancel returns to inline folder controls'
-    assert execute("return document.querySelector('.connection-folder .server-item-copy').getBoundingClientRect().width >= 100;"), 'Nested names retain room'
+    assert read("return document.querySelector('.connection-folder .server-item-copy').getBoundingClientRect().width >= 100;"), 'Nested names retain room'
     screenshot('connection-folders.png')
     screenshot('connection-order-folders.png')
     check('inline folders create, rename, drag and delete; protected renamed default receives removed-folder contents; connection drag order persists')
@@ -385,7 +429,7 @@ try:
     import hashlib
     host_key = (fixture_root / 'known_hosts').read_text().split()[2]
     fingerprint = 'SHA256:' + base64.b64encode(hashlib.sha256(base64.b64decode(host_key)).digest()).decode().rstrip('=')
-    assert execute('return document.body.textContent.includes(arguments[0]);', fingerprint), 'Trust prompt must identify the generated fixture host key'
+    assert read('return document.body.textContent.includes(arguments[0]);', fingerprint), 'Trust prompt must identify the generated fixture host key'
     click('[data-action="trust-host-key"]')
     wait(lambda: shown('[data-form="ssh-password"]'), 'password login prompt')
     type_into('[data-form="ssh-password"] [name="password"]', 'incorrect fixture password')
@@ -395,23 +439,23 @@ try:
     wait(lambda: shown('[data-form="ssh-password"]'), 'password prompt after rejected credentials')
     type_into('[data-form="ssh-password"] [name="password"]', ' fixture SSH password ')
     click('[data-form="ssh-password"] button[type="submit"]')
-    wait(lambda: execute("return document.body.textContent.includes('fixture-linux');"), 'authenticated overview')
-    system_disk = execute("return Array.from(document.querySelectorAll('.stat-card')).find(el=>el.textContent.includes('System disk'))?.textContent;")
+    wait(lambda: read("return document.body.textContent.includes('fixture-linux');"), 'authenticated overview')
+    system_disk = read("return Array.from(document.querySelectorAll('.stat-card')).find(el=>el.textContent.includes('System disk'))?.textContent;")
     assert '25%' in system_disk and 'free on /' in system_disk and '/run' not in system_disk, system_disk
     check('real SSH host-key review, rejected-password recovery and root-filesystem overview')
-    assert execute("return document.querySelectorAll('[data-action=theme]').length;") == 1, 'Remote sidebar must not duplicate the global theme toggle'
+    assert read("return document.querySelectorAll('[data-action=theme]').length;") == 1, 'Remote sidebar must not duplicate the global theme toggle'
     click('.nav-item[data-view="terminal"]')
-    wait(lambda: execute("return document.querySelector('.terminal-layer')?.textContent.includes('fixture-terminal-ready');"), 'interactive SSH terminal output')
+    wait(lambda: read("return document.querySelector('.terminal-layer')?.textContent.includes('fixture-terminal-ready');"), 'interactive SSH terminal output')
     def check_tab_alignment():
         def measured():
-            return execute("const work=[...document.querySelectorAll('.workspace-tab')].map(el=>{const r=el.getBoundingClientRect();return {height:r.height,top:r.top};});const terms=[...document.querySelectorAll('.term-tab')].map(el=>el.getBoundingClientRect().height);const visible=[...document.querySelectorAll('.workspace-tabs .workspace-tab.active,.terminal-tab-list .term-tab.active')].every(el=>{const a=el.getBoundingClientRect(),b=el.parentElement.getBoundingClientRect();return a.left>=b.left-1&&a.right<=b.right+1;});return {work,terms,visible,nested:document.querySelectorAll('button button').length};")
+            return read("const work=[...document.querySelectorAll('.workspace-tab')].map(el=>{const r=el.getBoundingClientRect();return {height:r.height,top:r.top};});const terms=[...document.querySelectorAll('.term-tab')].map(el=>el.getBoundingClientRect().height);const visible=[...document.querySelectorAll('.workspace-tabs .workspace-tab.active,.terminal-tab-list .term-tab.active')].every(el=>{const a=el.getBoundingClientRect(),b=el.parentElement.getBoundingClientRect();return a.left>=b.left-1&&a.right<=b.right+1;});return {work,terms,visible,nested:document.querySelectorAll('button button').length};")
         geometry = wait(lambda: (value if (value:=measured())['visible'] else None), 'selected tab and close control stay visible after resize')
         assert geometry['work'] and all(abs(tab['height']-34)<1 for tab in geometry['work']), geometry
         assert max(tab['top'] for tab in geometry['work'])-min(tab['top'] for tab in geometry['work'])<1, geometry
         assert all(abs(height-34)<1 for height in geometry['terms']), geometry
         assert geometry['nested']==0, geometry
     check_tab_alignment()
-    workspace_point=execute("const rect=document.querySelector('.workspace-tab.active:not(.workspace-tab-local)').getBoundingClientRect();return {x:rect.left+60,y:rect.top+rect.height/2};")
+    workspace_point=read("const rect=document.querySelector('.workspace-tab.active:not(.workspace-tab-local)').getBoundingClientRect();return {x:rect.left+60,y:rect.top+rect.height/2};")
     request('POST', f'/session/{session}/actions', {'actions':[{'type':'pointer','id':'workspace-rename','parameters':{'pointerType':'mouse'},'actions':[
       {'type':'pointerMove','duration':0,'origin':'viewport','x':int(workspace_point['x']),'y':int(workspace_point['y'])},
       {'type':'pointerDown','button':0},{'type':'pointerUp','button':0},{'type':'pause','duration':100},
@@ -419,41 +463,41 @@ try:
     wait(lambda: shown('[data-form="workspace-tab-rename"]'), 'double-click renames selected workspace without rebuilding its click target')
     type_into('[data-form="workspace-tab-rename"] [name="label"]', 'QA remote')
     click('[data-form="workspace-tab-rename"] button[type="submit"]')
-    wait(lambda: execute("return document.querySelector('.workspace-tab.active .workspace-tab-copy')?.textContent==='QA remote';"), 'workspace label saved')
+    wait(lambda: read("return document.querySelector('.workspace-tab.active .workspace-tab-copy')?.textContent==='QA remote';"), 'workspace label saved')
     def remote_input(text):
-        target = execute("return document.querySelector('.terminal-host:not([hidden]) .xterm-helper-textarea');")
+        target = read("return document.querySelector('.terminal-host:not([hidden]) .ghostty-input');")
         request('POST', f'/session/{session}/element/{target["element-6066-11e4-a52e-4f735466cecf"]}/value', {'text':text})
     remote_input('CI_REMOTE_λ_漢字\n')
-    wait(lambda: execute("return document.querySelector('.terminal-layer')?.textContent.includes('CI_REMOTE_λ_漢字');"), 'SSH input and UTF-8 echo')
+    wait(lambda: read("return document.querySelector('.terminal-layer')?.textContent.includes('CI_REMOTE_λ_漢字');"), 'SSH input and UTF-8 echo')
     for width, height in [(1400, 900), (820, 650), (640, 480)]:
         request('POST', f'/session/{session}/window/rect', {'width':width, 'height':height})
-        wait(lambda: execute('return Math.abs(window.innerWidth-arguments[0])<=16;', width), 'resized remote terminal viewport')
+        wait(lambda: read('return Math.abs(window.innerWidth-arguments[0])<=16;', width), 'resized remote terminal viewport')
         check_tab_alignment()
         compact_terminal_geometry()
     screenshot('remote-terminal-compact.png')
     click('[data-action="clear-terminal"]')
-    live_group = execute("return document.querySelector('.term-tab.active').dataset.tabGroup;")
-    live_pane = execute("return document.querySelector('.term-tab.active').dataset.terminalTab;")
+    live_group = read("return document.querySelector('.term-tab.active').dataset.tabGroup;")
+    live_pane = read("return document.querySelector('.term-tab.active').dataset.terminalTab;")
     click('[data-action="reconnect-terminal"]')
-    wait(lambda: execute("return document.querySelector('.term-tab.active').dataset.terminalTab !== arguments[0] && !document.querySelector('[data-action=\"reconnect-terminal\"]').disabled;", live_pane), 'live reconnect replaces the session in the same tab')
-    assert execute("return document.querySelector('.term-tab.active').dataset.tabGroup;") == live_group
-    wait(lambda: execute("return document.querySelector('.terminal-layer')?.textContent.includes('fixture-terminal-ready');"), 'live reconnected shell ready')
+    wait(lambda: read("return document.querySelector('.term-tab.active').dataset.terminalTab !== arguments[0] && !document.querySelector('[data-action=\"reconnect-terminal\"]').disabled;", live_pane), 'live reconnect replaces the session in the same tab')
+    assert read("return document.querySelector('.term-tab.active').dataset.tabGroup;") == live_group
+    wait(lambda: read("return document.querySelector('.terminal-layer')?.textContent.includes('fixture-terminal-ready');"), 'live reconnected shell ready')
     remote_input('exit\n')
-    wait(lambda: execute("return document.querySelector('.terminal-session-status')?.textContent.includes('Disconnected');"), 'disconnected terminal keeps reconnect accessible')
-    assert execute("return document.querySelector('.nav-item[data-view=dashboard]')?.disabled===false && document.querySelector('.nav-item[data-view=files]')?.disabled===false;"), 'Exiting a shell must not disable tools on its still-authenticated SSH connection'
+    wait(lambda: read("return document.querySelector('.terminal-session-status')?.textContent.includes('Disconnected');"), 'disconnected terminal keeps reconnect accessible')
+    assert read("return document.querySelector('.nav-item[data-view=dashboard]')?.disabled===false && document.querySelector('.nav-item[data-view=files]')?.disabled===false;"), 'Exiting a shell must not disable tools on its still-authenticated SSH connection'
     compact_terminal_geometry()
-    exited_pane = execute("return document.querySelector('.term-tab.active').dataset.terminalTab;")
+    exited_pane = read("return document.querySelector('.term-tab.active').dataset.terminalTab;")
     click('[data-action="reconnect-terminal"]')
-    wait(lambda: execute("return document.querySelector('.term-tab.active').dataset.terminalTab !== arguments[0] && !document.querySelector('[data-action=\"reconnect-terminal\"]').disabled;", exited_pane), 'disconnected reconnect replaces the exited session')
-    wait(lambda: execute("return document.querySelector('.terminal-layer')?.textContent.includes('fixture-terminal-ready');"), 'reconnected SSH terminal')
-    assert not execute("return document.querySelector('.terminal-layer')?.textContent.includes('CI_REMOTE_λ_漢字');"), 'Reconnect must not replay terminal input'
+    wait(lambda: read("return document.querySelector('.term-tab.active').dataset.terminalTab !== arguments[0] && !document.querySelector('[data-action=\"reconnect-terminal\"]').disabled;", exited_pane), 'disconnected reconnect replaces the exited session')
+    wait(lambda: read("return document.querySelector('.terminal-layer')?.textContent.includes('fixture-terminal-ready');"), 'reconnected SSH terminal')
+    assert not read("return document.querySelector('.terminal-layer')?.textContent.includes('CI_REMOTE_λ_漢字');"), 'Reconnect must not replay terminal input'
     remote_input('exit\n')
-    wait(lambda: execute("return document.querySelector('.terminal-session-status')?.textContent.includes('Disconnected');"), 'fixture terminal cleanup')
-    assert execute("return document.querySelector('.nav-item[data-view=dashboard]')?.disabled===false;"), 'SSH tools must remain available immediately after the last terminal exits'
+    wait(lambda: read("return document.querySelector('.terminal-session-status')?.textContent.includes('Disconnected');"), 'fixture terminal cleanup')
+    assert read("return document.querySelector('.nav-item[data-view=dashboard]')?.disabled===false;"), 'SSH tools must remain available immediately after the last terminal exits'
     request('POST', f'/session/{session}/window/rect', {'width':1400, 'height':900})
-    wait(lambda: execute('return Math.abs(window.innerWidth-1400)<=16;'), 'desktop viewport restored after narrow terminal checks')
+    wait(lambda: read('return Math.abs(window.innerWidth-1400)<=16;'), 'desktop viewport restored after narrow terminal checks')
     click('.nav-item[data-view="dashboard"]')
-    wait(lambda: execute("return !!document.querySelector('.nav-item.active[data-view=dashboard]') && !!document.querySelector('.page-head');"), 'overview restored before remote-tool navigation')
+    wait(lambda: read("return !!document.querySelector('.nav-item.active[data-view=dashboard]') && !!document.querySelector('.page-head');"), 'overview restored before remote-tool navigation')
     screenshot('workspace-terminal-tabs.png')
     check('remote SSH terminal uses one compact control row and fills desktop/narrow windows, with working input, Clear and reconnect')
     for view, expected_text in [
@@ -468,8 +512,8 @@ try:
         ('accounts', '/home/qa'),
     ]:
         click(f'.nav-item[data-view="{view}"]')
-        wait(lambda: execute("return document.querySelector('.page-head')?.parentElement.textContent.includes(arguments[0]);", expected_text), f'{view} renders authenticated fixture data')
-        assert not execute("return !!document.querySelector('.error-panel');"), f'{view} showed an error'
+        wait(lambda: read("return document.querySelector('.page-head')?.parentElement.textContent.includes(arguments[0]);", expected_text), f'{view} renders authenticated fixture data')
+        assert not read("return !!document.querySelector('.error-panel');"), f'{view} showed an error'
     click('.nav-item[data-view="dashboard"]')
     check('native remote-tool views render processes, failed services, disks, containers, logs, sockets, cron, packages and accounts')
     server = next(row for row in invoke('get_state')['servers'] if row['name'] == 'CI fixture SSH')
@@ -580,32 +624,42 @@ try:
     click('[data-action="install-update"]')
     wait(lambda: execute("return typeof window.__ternwayUpdateTest.finishInstall==='function';"), 'installer is pending')
     assert not shown('[data-action="restart-update"]'), 'No restart before installation completes'
-    assert execute("return document.querySelector('[aria-current=step]')?.textContent;") == 'Install'
+    assert read("return document.querySelector('[aria-current=step]')?.textContent;") == 'Install'
     screenshot('update-installing.png')
     click('.modal-updates [data-action="close-modal"]')
     assert shown('[data-update-notice] [data-action="check-updates"]'), 'Background update details stay accessible'
     execute("window.__ternwayUpdateTest.finishInstall(); return true;")
     wait(lambda: shown('[data-update-notice] [data-action="restart-update"]'), 'persistent restart-to-finish notice')
-    assert execute("return JSON.parse(localStorage.getItem('ternway-update-restart')).version;") == '99.0.0-test'
+    assert read("return JSON.parse(localStorage.getItem('ternway-update-restart')).version;") == '99.0.0-test'
     request('POST', f'/session/{session}/window', {'handle':other_handle})
     wait(lambda: shown('[data-update-notice] [data-action="restart-update"]'), 'other window receives restart readiness')
     request('POST', f'/session/{session}/window', {'handle':update_handle})
     click('[data-update-notice] [data-action="restart-update"]')
     click('[data-action="cancel-app-dialog"]')
-    assert execute('return window.__ternwayUpdateTest.restarts;') == 0, 'Cancel leaves active terminals running'
+    assert read('return window.__ternwayUpdateTest.restarts;') == 0, 'Cancel leaves active terminals running'
     click('[data-action="credential-settings"]')
     click('[data-settings-page="updates"]')
     wait(lambda: shown('[data-update-section] [data-action="restart-update"]'), 'restart readiness survives settings navigation')
     assert not shown('[data-action="install-update"]')
-    assert execute('return window.__ternwayUpdateTest.checks;') == 1, 'Ready update is not checked or downloaded again'
+    assert read('return window.__ternwayUpdateTest.checks;') == 1, 'Ready update is not checked or downloaded again'
     screenshot('update-restart-ready.png')
     click('[data-update-section] [data-action="restart-update"]')
     click('[data-action="accept-app-dialog"]')
-    wait(lambda: execute('return window.__ternwayUpdateTest.restarts===1;'), 'restart action reaches save-barrier command')
+    wait(lambda: read('return window.__ternwayUpdateTest.restarts===1;'), 'restart action reaches save-barrier command')
     wait(lambda: shown('[data-update-section] [data-action="restart-update"]'), 'cancelled shutdown keeps update ready')
     click('.modal-settings [data-action="close-modal"]')
     execute("window.fetch=window.__ternwayUpdateTest.original; localStorage.removeItem('ternway-update-restart'); delete window.__ternwayUpdateTest; return true;")
     check('updater distinguishes installation from restart, retains readiness across navigation and windows, and honours cancellation')
+
+    request('POST', f'/session/{session}/window', {'handle':update_handle})
+    click('[data-action="open-local"]')
+    if not shown('.terminal-host:not([hidden]) .ghostty-input'):
+        click('[data-action="new-terminal"]')
+    history_input=wait(lambda:element('.terminal-host:not([hidden]) .ghostty-input'), 'local history fixture')
+    history_marker='REVIEW_RESTORED_HISTORY'
+    history_escaped=''.join('\\%03o'%byte for byte in history_marker.encode())
+    request('POST', f'/session/{session}/element/{history_input}/value', {'text': f"printf '{history_escaped}\\n'\n"})
+    wait(lambda:read("return document.querySelector('.terminal-layer')?.textContent.includes(arguments[0]);",history_marker),'history before coordinated quit')
 
     # Quit exercises the same all-window save barrier used by updater restart.
     execute("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('request_app_quit'),0); return true;")
@@ -614,9 +668,20 @@ try:
     wait(lambda: (data_dir / "session.json").exists() and len(list((data_dir / "sessions").glob('*.json'))) >= 1, "every window saved before exit")
     def app_exited():
         try:
-            return not request("GET", f"/session/{session}/window/handles")
+            handles=request("GET", f"/session/{session}/window/handles")
         except (RuntimeError, urllib.error.URLError, http.client.RemoteDisconnected):
             return True
+        # Explicit command profiles are conservatively classified as running
+        # jobs. Confirm only our disposable sessions, in every test window.
+        for handle in handles:
+            try:
+                request('POST', f'/session/{session}/window', {'handle':handle})
+                if shown('[data-action="accept-app-dialog"]'):
+                    screenshot('shutdown-confirmation.png')
+                    click('[data-action="accept-app-dialog"]')
+            except (RuntimeError, urllib.error.URLError, http.client.RemoteDisconnected):
+                pass # A window may close while the all-window barrier completes.
+        return not handles
     wait(app_exited, "coordinated quit completed without killing the application")
     try:
         request("DELETE", f"/session/{session}")
@@ -626,19 +691,23 @@ try:
     (data_dir / "transfers.json").write_text("damaged test queue")
     start()
     check_startup_size()
-    assert execute("return document.querySelector('#app').dataset.colorTheme;") == 'github-dark-dimmed', 'Selected theme survives restart'
-    wait(lambda: execute("return document.body.textContent.includes('Start session');"), "restored dormant panes")
-    assert not execute("return document.body.textContent.includes(arguments[0]);", expected), "Private scrollback should not be restored by default"
+    wait(lambda:read("return document.querySelector('#app')?.dataset.colorTheme==='github-dark-dimmed';"),'selected theme survives restart and restored webview reattaches')
+    wait(lambda: read("return document.body.textContent.includes('Start session');"), "restored dormant panes")
+    wait(lambda:read("return document.body.textContent.includes(arguments[0]);",history_marker),'opted-in history restored as inert native cells')
+    for handle in request('GET', f'/session/{session}/window/handles'):
+        request('POST', f'/session/{session}/window', {'handle':handle})
+        ids=wait(lambda:read("return [...document.querySelectorAll('.term-tab')].map(el=>el.dataset.terminalTab);"),'restored terminal identifiers')
+        assert all(value=='closed' for value in invoke('terminal_activities',sessionIds=ids).values()), 'Restored history must not start a process'
     assert "retained" in invoke("transfer_queue_notice")
     assert any(path.read_text() == "damaged test queue" for path in data_dir.glob("transfers-recovery-*.json"))
     check("damaged transfer queue is retained without blocking native terminal startup")
     screenshot("restored-layout.png")
-    check("all native windows save and reopen dormant without output or command replay")
+    check("all native windows save and reopen dormant with opted-in history and no command replay")
     (artifacts / "results.json").write_text(json.dumps({"backend": os.environ.get("GDK_BACKEND"), "checks": checks}, indent=2))
 finally:
     if session:
         try:
-            screenshot("final.png")
+            if verified_app: screenshot("final.png")
             request("DELETE", f"/session/{session}")
         except Exception as error:
             print(f"Cleanup observation: {error}", file=sys.stderr)

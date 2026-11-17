@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fontSizePx, hostMatches, keybindLines, parseColor, parseConfig, parseDuration, scrollbackLines, themeName, xtermTheme, type ConfigEntry } from "../src/app/config.ts";
+import { fontSizePx, hostMatches, keybindLines, parseColor, parseConfig, parseDuration, themeName, terminalTheme, type ConfigEntry } from "../src/app/config.ts";
 
 const entries = (text: string): ConfigEntry[] => text.trim().split("\n").map((line, index) => {
   const [key, ...rest] = line.split("=");
@@ -58,8 +58,8 @@ test("colors accept Ghostty spellings", () => {
   assert.equal(parseColor("bogus"), null);
 });
 
-test("theme layers apply in order, palette maps to xterm names", () => {
-  const theme = xtermTheme({ background: "#000000", red: "#aa0000" },
+test("theme layers apply in order, palette maps to terminal color names", () => {
+  const theme = terminalTheme({ background: "#000000", red: "#aa0000" },
     { background: "#111111", palette: { 1: "#ff5555", 20: "#123456" } },
     { palette: { 1: "#ff0000" } });
   assert.equal(theme.background, "#111111");
@@ -76,9 +76,6 @@ test("light and dark theme variants", () => {
 test("units", () => {
   assert.equal(fontSizePx(12, "linux"), 16);
   assert.equal(fontSizePx(13, "macos"), 13);
-  assert.equal(scrollbackLines(10_000_000), 100_000);
-  assert.equal(scrollbackLines(4294967295), 100_000);
-  assert.equal(scrollbackLines(0), 1_000);
 });
 
 test("keybind = clear drops the defaults", () => {

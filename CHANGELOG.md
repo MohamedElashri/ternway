@@ -1,15 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 - 2026-11-17
 
-- Close the final local terminal or Local workspace without creating replacement shells.
-- Organize connections directly in the sidebar with drag ordering, inline folder controls and a permanent renameable default folder.
-- Align workspace and terminal tabs, with keyboard navigation and consistent close controls.
-- Refine shared buttons, destructive actions, focus states and theme contrast.
-
-- Separate update download, verification, installation and restart stages, with a persistent restart reminder across windows.
-- Remove the duplicate appearance toggle from remote workspaces.
-- Open ordinary windows at a usable size on Linux, including HiDPI and small displays.
+- Switch from xterm.js to native libghostty-vt.
+- Organize connections with draggable sidebar folders and a renameable default folder.
+- Close local sessions and improve tabs, buttons and Settings layout.
+- Fix terminal input and rendering, search, copy, inline images and Wayland clipboard support.
+- Fix startup sizing and zoom, and clarify update progress and restart.
 
 ## 0.3.2 - 2026-11-17
 

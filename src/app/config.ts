@@ -293,20 +293,20 @@ export function themeName(value: string, dark: boolean): string {
 }
 
 /** GitHub Dark is the initial fallback; the selected workspace preset is layered at runtime. */
-export const DEFAULT_THEME: XtermTheme = { ...themePreset(DEFAULT_THEME_ID).terminal };
+export const DEFAULT_THEME: TerminalTheme = { ...themePreset(DEFAULT_THEME_ID).terminal };
 
 const ANSI_NAMES = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
   "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"] as const;
 
-export interface XtermTheme {
+export interface TerminalTheme {
   background?: string; foreground?: string; cursor?: string; cursorAccent?: string;
   selectionBackground?: string; selectionForeground?: string; extendedAnsi?: string[];
   [ansi: string]: string | string[] | undefined;
 }
 
 /** Layers the base theme, the theme file and the config's own colors, in that order. */
-export function xtermTheme(base: XtermTheme, ...layers: (ColorConfig | null)[]): XtermTheme {
-  const theme: XtermTheme = { ...base };
+export function terminalTheme(base: TerminalTheme, ...layers: (ColorConfig | null)[]): TerminalTheme {
+  const theme: TerminalTheme = { ...base };
   for (const colors of layers) {
     if (!colors) continue;
     if (colors.background) theme.background = colors.background;
@@ -327,14 +327,6 @@ export function xtermTheme(base: XtermTheme, ...layers: (ColorConfig | null)[]):
 /** Ghostty sizes fonts in points. WebKit on macOS treats a CSS pixel as a point; elsewhere 1pt = 4/3 px. */
 export function fontSizePx(points: number, platform: string): number {
   return Math.round(platform === "macos" ? points : points * 4 / 3);
-}
-
-/**
- * Ghostty limits scrollback in bytes; xterm.js in lines. Assume ~100 bytes per line and cap
- * the in-memory scrollback, since xterm.js keeps every line in JavaScript memory.
- */
-export function scrollbackLines(bytes: number): number {
-  return Math.min(100_000, Math.max(1_000, Math.round(bytes / 100)));
 }
 
 /** Default bindings followed by config bindings; `keybind = clear` drops everything before it. */

@@ -430,13 +430,17 @@ pub(crate) fn unregister(sessions: &TerminalSessions, session_id: &str) {
 }
 
 pub fn input(sessions: &TerminalSessions, session_id: &str, data: String) -> Result<(), String> {
+    input_bytes(sessions, session_id, data.into_bytes())
+}
+
+/// Native terminal protocol responses may contain bytes outside UTF-8 (e.g. X10 mouse).
+pub(crate) fn input_bytes(sessions: &TerminalSessions, session_id: &str, data: Vec<u8>) -> Result<(), String> {
     let session = sessions
         .lock()
         .map_err(|_| "Terminal session lock was poisoned".to_string())?
         .get(session_id)
         .cloned()
         .ok_or_else(|| "That terminal session is no longer connected".to_string())?;
-    let data = data.into_bytes();
     let length = data.len();
     reserve_input_bytes(&session.pending_input_bytes, length)?;
     session

@@ -163,9 +163,15 @@ jobs:
           cache: npm
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: ${{ matrix.rust_target }}
+
+      - name: Install Zig for native libghostty-vt
+        if: runner.os == 'Linux'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2

@@ -1,7 +1,7 @@
 import { folderPath } from "./connection-folders.ts";
 import type { ServerProfile } from "../types.ts";
 
-const group = (server: ServerProfile): string => folderPath(server.groupName).toLocaleLowerCase();
+const group = (server: ServerProfile): string => folderPath(server.groupName).toLowerCase();
 
 export function orderedConnections(servers: ServerProfile[], order: string[] = []): ServerProfile[] {
   const ranks = new Map(order.map((id, index) => [id, index]));

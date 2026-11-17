@@ -6,7 +6,7 @@ import { parseSavedLayout, type SavedPane, type SavedSession } from "./saved-lay
 export type { SavedPane, SavedSession } from "./saved-layout";
 import { freshSessionRequest } from "./connection-lifecycle";
 import { invoke } from "@tauri-apps/api/core";
-import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { readText, writeText } from "./clipboard";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { TerminalStarted, TerminalTab } from "../types";
@@ -19,12 +19,11 @@ import { openPicker, type PaletteItem } from "./palette";
 import { layoutPanes, leaf, leaves, mapLeaves, MIN_RATIO, neighbor, removeLeaf, replaceLeaf, splitLeaf, type Divider, type FocusDirection, type PaneNode, type Rect, type SplitDirection } from "./panes";
 import { render } from "./render";
 import { cancelCurrentOperation, invokeCommand, setError } from "./session";
-import { activeDock, activeTerminalGroup, activeTerminalGroups, activeTerminalTabByWorkspace, connectedServerIds, dockShown, isLocalWorkspace, LOCAL_SERVER_ID, LOCAL_WORKSPACE_ID, root, serverTabViews, state, terminalDocks, terminalGroupOf, terminalInputChains, terminalSurfaces, useWebglRenderer } from "./state";
+import { activeDock, activeTerminalGroup, activeTerminalGroups, activeTerminalTabByWorkspace, connectedServerIds, dockShown, isLocalWorkspace, LOCAL_SERVER_ID, LOCAL_WORKSPACE_ID, root, serverTabViews, state, terminalDocks, terminalGroupOf, terminalInputChains, terminalSurfaces } from "./state";
 import { TerminalSurface, type TerminalAppearance } from "./terminal-surface";
 import { showToast } from "./toasts";
 import { loadTerminalConfig, profileConfig, profileForServer, terminalAppearance } from "./terminal-config";
 import type { TerminalGroup } from "./types";
-import type { TerminalRenderer } from "./state";
 
 
 /** The surface of the focused pane, if any. */
@@ -35,7 +34,6 @@ export function createTerminalSurface(tab: TerminalTab): TerminalSurface {
   const surface = new TerminalSurface({
     // New panes inherit the focused pane's font size, like Ghostty's window-inherit-font-size.
     appearance: { ...appearance, fontSize: focusedSurface()?.fontSize ?? appearance.fontSize },
-    webgl: useWebglRenderer(),
     onSelection: () => {
       const { copyOnSelect, trimTrailingSpaces } = profileConfig(tab.profile);
       // `true` means the primary selection, which a webview cannot write; `clipboard` copies.
@@ -44,6 +42,7 @@ export function createTerminalSurface(tab: TerminalTab): TerminalSurface {
       rememberClipboard(text);
       void writeText(text).catch(() => undefined);
     },
+    onPaste: text => { void pasteWithProtection(surface, text).catch(setError); },
     onFocus: () => focusPane(tab.id, false),
     onOpenUrl: (url) => { void openUrl(url).catch(setError); },
     imageStorageMb: profileConfig(tab.profile).imageStorageLimit / 1_000_000,
@@ -89,7 +88,7 @@ export function createTerminalSurface(tab: TerminalTab): TerminalSurface {
       finishRemoteEdit(tab);
       if (tab.serverId === LOCAL_SERVER_ID && !profileConfig(tab.profile).waitAfterCommand) { void closeTerminal(tab.id); return; }
       surface.notice(message);
-      surface.term.write(tab.serverId === LOCAL_SERVER_ID ? "\x1b[2mPress any key to close.\x1b[0m" : "\x1b[2mReconnect opens a fresh session; previous commands are not replayed.\x1b[0m");
+      surface.write(tab.serverId === LOCAL_SERVER_ID ? "\x1b[2mPress any key to close.\x1b[0m" : "\x1b[2mReconnect opens a fresh session; previous commands are not replayed.\x1b[0m");
       render();
     },
   });
@@ -293,14 +292,15 @@ async function openTerminal(placement: Placement, command?: string, title?: stri
   if (placement.kind === "replace") disposeTerminalSurfaces([placement.tab]);
   const surface = createTerminalSurface(tab);
   if (placement.kind === "restore" && placement.pane.snapshot) {
-    surface.term.write(`${placement.pane.snapshot}\r\n\x1b[0m\x1b[2m── restored session ──\x1b[0m\r\n`);
+    surface.write(`${placement.pane.snapshot}\r\n\x1b[0m\x1b[2m── restored session ──\x1b[0m\r\n`);
   }
   state.terminalTabs.push(tab);
   const startSession = async (): Promise<void> => {
     try {
+      const engineId = await surface.ready;
       const started = local
-        ? await invoke<TerminalStarted>("start_local_terminal", { request: localRequest, onOutput: surface.output })
-        : await invokeCommand<TerminalStarted>("start_terminal", { request: { ...freshSessionRequest(id, serverId, cols, rows, config.remoteShellIntegration && !tabCommand, remoteWorkingDirectory(placement, serverId)), command: tabCommand }, onOutput: surface.output });
+        ? await invoke<TerminalStarted>("start_local_terminal", { request: localRequest, engineId })
+        : await invokeCommand<TerminalStarted>("start_terminal", { request: { ...freshSessionRequest(id, serverId, cols, rows, config.remoteShellIntegration && !tabCommand, remoteWorkingDirectory(placement, serverId)), command: tabCommand }, engineId });
       if (!state.terminalTabs.includes(tab)) {
         await invoke("close_terminal", { sessionId: started.sessionId }).catch(() => undefined);
         return;
@@ -416,19 +416,14 @@ export function applyTerminalAppearance(): void {
   }
 }
 
-export function setTerminalRenderer(renderer: TerminalRenderer): void {
-  state.terminalRenderer = renderer;
-  try { localStorage.setItem("ternway-renderer", renderer); } catch { /* not persisted */ }
-  for (const surface of terminalSurfaces.values()) surface.setWebgl(useWebglRenderer());
-}
-
 // --- Session restore (window-save-state) ------------------------------------------------------
 
 const SNAPSHOT_LINES = 1000;
 
 /** Layouts hold session metadata and optional historical output, never commands or credentials. */
-export function snapshotSession(): SavedSession {
+export async function snapshotSession(): Promise<SavedSession> {
   const groups: SavedSession["groups"] = [];
+  const snapshots: Promise<void>[] = [];
   let activeGroup = 0;
   for (const group of state.terminalGroups) {
     let root: PaneNode | null = structuredClone(group.root);
@@ -436,13 +431,18 @@ export function snapshotSession(): SavedSession {
     for (const id of leaves(group.root)) {
       const tab = state.terminalTabs.find(item => item.id === id);
       if (!tab || tab.remoteEditId) { root = root && removeLeaf(root, id); continue; }
-      panes[id] = { cwd: tab.cwd, profile: tab.profile, snapshot: state.terminalConfig.config.saveScrollback ? terminalSurfaces.get(id)?.snapshot(SNAPSHOT_LINES) : undefined };
+      const pane: SavedPane = { cwd: tab.cwd, profile: tab.profile };
+      panes[id] = pane;
+      const surface = terminalSurfaces.get(id);
+      if (surface && state.terminalConfig.config.saveScrollback) snapshots.push(surface.snapshot(SNAPSHOT_LINES).then(text => { pane.snapshot = text; }));
     }
     if (!root) continue;
     if (state.activeTerminalTabId && leaves(root).includes(state.activeTerminalTabId)) activeGroup = groups.length;
     groups.push({ workspace: group.workspaceTabId, title: group.title, customTitle: group.customTitle, root, focusedId: panes[group.focusedId] ? group.focusedId : leaves(root)[0], panes });
   }
-  return { version: 2, activeGroup, activeWorkspace: state.activeWorkspaceTabId ?? undefined, localOpen: state.localWorkspaceOpen, workspaces: state.openServerTabs.map(tab => ({ ...tab })), groups };
+  const saved: SavedSession = { version: 2, activeGroup, activeWorkspace: state.activeWorkspaceTabId ?? undefined, localOpen: state.localWorkspaceOpen, workspaces: state.openServerTabs.map(tab => ({ ...tab })), groups };
+  await Promise.all(snapshots);
+  return saved;
 }
 
 /** Restore only dormant panes. Starting any local/remote process requires an explicit action. */
@@ -563,7 +563,7 @@ export function positionTerminalLayer(): void {
     width: `${rect.width}px`,
     height: `${rect.height}px`,
     padding: style.padding,
-    // Only clip when needed: a clip path changes how WebKit composites the WebGL canvas.
+    // Only clip when needed: a clip path changes how WebKit composites the terminal canvas.
     clipPath: inset.some((value) => value > 0) ? `inset(${inset.map((value) => `${value}px`).join(" ")})` : "none",
   });
   terminalLayer.hidden = false;
@@ -647,7 +647,7 @@ export function mountTerminal(): void {
       placeholderObserver.observe(placeholder);
     }
   }
-  // Size the layer before opening restored panes; xterm cannot measure a zero-size host.
+  // Size the layer before opening restored panes; the renderer cannot measure a zero-size host.
   terminalLayer.hidden = !placeholder;
   positionTerminalLayer();
   layoutPanesInLayer();
@@ -674,19 +674,17 @@ const searchOptions = { caseSensitive: false, regex: false };
 let searchSurface: TerminalSurface | null = null;
 let searchSubscription: { dispose(): void } | null = null;
 
-function runSearch(backwards: boolean): void {
+async function runSearch(backwards: boolean): Promise<void> {
   if (!searchSurface) return;
-  const found = searchSurface.find(searchInput.value, backwards, searchOptions);
-  if (!searchInput.value) searchCount.textContent = "";
-  else if (!found) searchCount.textContent = "No matches";
+  await searchSurface.find(searchInput.value, backwards, searchOptions);
 }
 
 function openSearch(surface: TerminalSurface): void {
   if (searchSurface !== surface) {
     closeSearch(false);
     searchSurface = surface;
-    searchSubscription = surface.search.onDidChangeResults(({ resultIndex, resultCount }) => {
-      searchCount.textContent = resultCount ? `${resultIndex + 1}/${resultCount}` : searchInput.value ? "No matches" : "";
+    searchSubscription = surface.search.onDidChangeResults(({ resultIndex, resultCount, error }) => {
+      searchCount.textContent = error ? `Search: ${error}` : resultCount ? `${resultIndex + 1}/${resultCount}` : searchInput.value ? "No matches" : "";
     });
   }
   searchBar.hidden = false;
@@ -835,12 +833,10 @@ function showPasteHistory(surface: TerminalSurface): void {
 }
 
 /** Completes the word before the cursor from the pane's recent output (iTerm2's Cmd+;). */
-function showCompletions(surface: TerminalSurface, tab: TerminalTab): void {
-  const buffer = surface.term.buffer.active;
-  const cursorLine = buffer.baseY + buffer.cursorY;
-  const prefix = wordBeforeCursor(buffer.getLine(cursorLine)?.translateToString(false, 0, buffer.cursorX) ?? "");
-  const lines: string[] = [];
-  for (let line = Math.max(0, cursorLine - 2000); line < cursorLine; line++) lines.push(buffer.getLine(line)?.translateToString(true) ?? "");
+async function showCompletions(surface: TerminalSurface, tab: TerminalTab): Promise<void> {
+  const { beforeCursor, recent } = await surface.completionText();
+  const prefix = wordBeforeCursor(beforeCursor);
+  const lines = recent.split("\n");
   const words = completions(lines, prefix);
   const insert = (word: string) => { if (tab.sessionId) queueTerminalInput(tab.sessionId, word.slice(prefix.length)); surface.focus(); };
   if (!words.length) { showToast(prefix ? `No completions for “${prefix}” in this pane's output.` : "No words in this pane's output yet.", "info"); return; }
@@ -874,20 +870,20 @@ export function runTerminalAction(action: KeyAction): boolean {
   if (!surface || !tab || !group) return false;
   switch (action) {
     case "copy_to_clipboard": {
-      const text = surface.selectionText(profileConfig(tab.profile).trimTrailingSpaces);
-      if (text) { rememberClipboard(text); void writeText(text).catch(setError); }
+      void surface.selectionTextNow(profileConfig(tab.profile).trimTrailingSpaces).then(text => { if (text) { rememberClipboard(text); return writeText(text); } }).catch(setError);
       return true;
     }
     case "paste_from_clipboard": void pasteFromClipboard(surface); return true;
     case "select_all": surface.selectAll(); return true;
     case "start_search": openSearch(surface); return true;
     case "jump_to_prompt:-1": case "jump_to_prompt:1":
-      if (!surface.jumpToPrompt(action === "jump_to_prompt:1" ? 1 : -1) && !surface.commands.active) showToast("Jumping between prompts needs shell integration.", "info");
+      void surface.jumpToPrompt(action === "jump_to_prompt:1" ? 1 : -1).then(found => { if (!found && !surface.commands.active) showToast("Jumping between prompts needs shell integration.", "info"); }).catch(setError);
       return true;
     case "copy_last_output": {
-      const text = surface.commands.lastOutput();
-      if (text === null) showToast(surface.commands.active ? "No finished command to copy yet." : "Copying command output needs shell integration.", "info");
-      else { rememberClipboard(text); void writeText(text).then(() => showToast("Copied the last command's output.", "success")).catch(setError); }
+      void surface.commands.lastOutput().then(text => {
+        if (text === null) showToast(surface.commands.active ? "No finished command to copy yet." : "Copying command output needs shell integration.", "info");
+        else { rememberClipboard(text); void writeText(text).then(() => showToast("Copied the last command's output.", "success")).catch(setError); }
+      }).catch(setError);
       return true;
     }
     case "clear_screen": surface.clear(); return true;
@@ -911,7 +907,7 @@ export function runTerminalAction(action: KeyAction): boolean {
       showToast(group.broadcast ? `Typing now goes to all ${leaves(group.root).length} panes of this tab.` : "Broadcast input is off.", "info");
       return true;
     case "paste_history": showPasteHistory(surface); return true;
-    case "autocomplete": showCompletions(surface, tab); return true;
+    case "autocomplete": void showCompletions(surface, tab).catch(setError); return true;
     case "move_tab:-1": case "move_tab:1": moveTab(group.id, action === "move_tab:1" ? 1 : -1); return true;
     case "rename_tab": void renameTab(group.id); return true;
     case "next_tab": cycleTab(1); return true;

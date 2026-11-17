@@ -18,7 +18,6 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/400-italic.css";
 import "@fontsource/jetbrains-mono/700.css";
 import "@fontsource/jetbrains-mono/700-italic.css";
-import "@xterm/xterm/css/xterm.css";
 import { closeModal } from "./app/actions/admin";
 import { appendLogOutput } from "./app/actions/logs";
 import { transferUpload } from "./app/actions/remote";
@@ -254,7 +253,7 @@ async function bootstrap(): Promise<void> {
     state.credentialStatus = await invoke<CredentialStatus>("get_credential_status");
     state.loading = false;
     // Load the config first so the first shell already uses it, and the bundled font (Ghostty's
-    // default, not installed on macOS) before xterm.js measures its cell size.
+    // default, not installed on macOS) before the terminal measures its cell size.
     await loadTerminalConfig();
     if (!quickMode) await invoke("set_window_restore", { enabled: sessionSavingEnabled() });
     await Promise.all(["400", "700"].map((weight) => document.fonts.load(`${weight} 16px "JetBrains Mono"`))).catch(() => undefined);

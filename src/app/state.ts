@@ -5,7 +5,7 @@ import { type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { AccountSnapshot, AppStateSnapshot, AuthorizedKey, CommandResult, ComposeProject, CredentialStatus, CronJob, DiskExplorerSnapshot, DockerSnapshot, FirewallSnapshot, LargestDirectory, PackagePage, PortInfo, ProcessInfo, RemoteFile, SavedCommand, SecuritySnapshot, ServerCapabilities, ServerConnection, ServerProfile, ServiceDetails, ServiceInfo, TerminalTab, TransferProgress, TunnelConfig, TunnelStatus } from "../types";
-import { DEFAULT_CONFIG, type TerminalConfig, type XtermTheme } from "./config";
+import { DEFAULT_CONFIG, type TerminalConfig, type TerminalTheme } from "./config";
 import { LINUX_DEFAULTS, MACOS_DEFAULTS, parseKeybindings, type Keybinding } from "./keybindings";
 import { TerminalSurface } from "./terminal-surface";
 import type { ActiveOperation, AdministrationTab, ContainerPlatformTab, DashboardState, DiskTab, DockerSection, HostKeyMismatch, HostKeyUnknown, LogTarget, LogViewerState, MasterPasswordPromptMode, ModalKind, TerminalGroup, View, WorkspaceTab } from "./types";
@@ -18,11 +18,6 @@ export const quickMode = new URLSearchParams(window.location.search).has("quick"
 /** The always-open workspace for shells on this machine. Must match `LOCAL_SERVER_ID` in local_pty.rs. */
 export const LOCAL_WORKSPACE_ID = "local";
 export const LOCAL_SERVER_ID = "local";
-/**
- * WebGL is the fast renderer, but in WebKitGTK resized WebGL terminals were not repainted
- * (seen with software GL), so Linux uses the DOM renderer unless WebGL is chosen explicitly.
- */
-export const useWebglRenderer = (): boolean => state.terminalRenderer === "webgl" || (state.terminalRenderer === "auto" && platform === "macos");
 export const isLocalWorkspace = (): boolean => state.activeWorkspaceTabId === LOCAL_WORKSPACE_ID;
 
 /** A server's terminals docked beside its other views (Files, Logs, …). */
@@ -40,7 +35,7 @@ export const INTERFACE_SCALE_LEVELS = [0.8, 1, 1.2, 1.4, 1.6, 1.8, 2] as const;
 export const DEFAULT_INTERFACE_SCALE = 1;
 export interface ResolvedProfile {
   config: TerminalConfig;
-  theme: XtermTheme;
+  theme: TerminalTheme;
 }
 
 export interface LoadedTerminalConfig extends ResolvedProfile {
@@ -51,9 +46,7 @@ export interface LoadedTerminalConfig extends ResolvedProfile {
   errors: string[];
 }
 
-export type TerminalRenderer = "auto" | "webgl" | "dom";
 const storedAppearance = restoredTheme(localStorage);
-const storedRenderer = localStorage.getItem("ternway-renderer");
 
 const storedInterfaceScale = Number(localStorage.getItem("ternway-interface-scale"));
 
@@ -158,7 +151,6 @@ export class AppState {
   terminalGroups: TerminalGroup[] = [];
   terminalConfig: LoadedTerminalConfig = { path: "", config: DEFAULT_CONFIG, theme: themePreset(this.themeId).terminal, profiles: new Map(), ignored: [], errors: [] };
   keybindings: Keybinding[] = parseKeybindings(platform === "macos" ? MACOS_DEFAULTS : LINUX_DEFAULTS);
-  terminalRenderer: TerminalRenderer = storedRenderer === "webgl" || storedRenderer === "dom" ? storedRenderer : "auto";
   terminalUnlisteners: UnlistenFn[] = [];
   navigationVersion = 0;
   viewTransition: { serverId: string; view: View; version: number } | null = null;

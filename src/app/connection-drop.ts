@@ -9,12 +9,12 @@ export function connectionDrop(servers: ServerProfile[], order: string[] | undef
   const others = sorted.filter(server => server.id !== id);
   let index: number;
   if (targetId) {
-    index = others.findIndex(server => server.id === targetId && folderPath(server.groupName).toLocaleLowerCase() === destination.toLocaleLowerCase());
+    index = others.findIndex(server => server.id === targetId && folderPath(server.groupName).toLowerCase() === destination.toLowerCase());
     if (index < 0) return null;
     if (after) index++;
   } else {
     let last = -1;
-    others.forEach((server, index) => { if (folderPath(server.groupName).toLocaleLowerCase() === destination.toLocaleLowerCase()) last = index; });
+    others.forEach((server, index) => { if (folderPath(server.groupName).toLowerCase() === destination.toLowerCase()) last = index; });
     index = last < 0 ? others.length : last + 1;
   }
   const ids = others.map(server => server.id);
@@ -24,7 +24,7 @@ export function connectionDrop(servers: ServerProfile[], order: string[] | undef
 
 /** Folders reorder within their level; the permanent default folder stays first. */
 export function folderDrop(paths: string[], order: string[] | undefined, source: string, target: string, after = false): string[] | null {
-  const parent = (path: string) => folderPath(path).split("/").slice(0, -1).join("/").toLocaleLowerCase();
+  const parent = (path: string) => folderPath(path).split("/").slice(0, -1).join("/").toLowerCase();
   if (!source || !target || source === target || parent(source) !== parent(target)) return null;
   const all = orderedFolderPaths(paths, order);
   if (!all.includes(source) || !all.includes(target)) return null;

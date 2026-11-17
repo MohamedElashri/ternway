@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
@@ -56,4 +57,14 @@ test("folder ordering respects saved sibling ranks while preserving hierarchy", 
   const tree = connectionFolderTree([], ['Alpha','Alpha/Z','Alpha/A','Beta'], ['Beta','Alpha','Alpha/Z','Alpha/A']);
   assert.deepEqual(tree.children.map(folder => folder.path), ['Beta','Alpha']);
   assert.deepEqual(tree.children[1].children.map(folder => folder.name), ['Z','A']);
+});
+
+
+test("folder identity and ordering stay aligned with Rust in Turkish locales", () => {
+  const moduleUrl=new URL("../src/app/connection-folders.ts",import.meta.url).href;
+  const script=`import { connectionFolderTree } from ${JSON.stringify(moduleUrl)};console.log(JSON.stringify(connectionFolderTree([], ["I", "ı"], ["ı", "I"]).children.map(folder=>folder.path)));`;
+  const env={...process.env,LANG:"tr_TR.UTF-8",LC_ALL:"tr_TR.UTF-8"};
+  delete env.NODE_TEST_CONTEXT;
+  const result=execFileSync(process.execPath,["--input-type=module","-e",script],{env,encoding:"utf8"});
+  assert.deepEqual(JSON.parse(result),["ı","I"]);
 });

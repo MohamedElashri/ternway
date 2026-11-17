@@ -2,7 +2,11 @@
 
 ## Build from source
 
-Install a current Node.js, Rust, and the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/).
+Install Node.js 24, the Rust toolchain pinned in `rust-toolchain.toml`, and the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/).
+Linux builds also require **Zig 0.17.1** to compile the pinned native libghostty-vt.
+macOS uses the upstream XCFramework. The Rust bindings verify SHA-256 checksums of the
+Ghostty 1.0.1 source/dependency archives and XCFramework before building or linking.
+
 On Debian or Ubuntu:
 
 ```sh
@@ -29,8 +33,28 @@ If the build cannot find `webkit2gtk-4.1` or `libsoup-3.0` although they are ins
 
 The TypeScript frontend (no framework) talks to the Rust backend only through typed Tauri commands.
 Rust owns persistence, the credential vault, SSH, SFTP, local PTYs and remote capability providers.
-Terminal output reaches the frontend as raw bytes over a Tauri channel, batched per frame with
-flow control.
+PTY output is batched with flow control and parsed by **natively linked libghostty-vt 1.0.1**.
+All Ghostty handles live on one dedicated thread; commands cross thread boundaries through a
+bounded channel. The webview receives dirty cell rows, cursor/scrollbar state and image placements,
+and draws them on a canvas. There is no WebAssembly terminal engine or xterm.js dependency.
+
+The frontend acknowledges original PTY bytes after consuming each render packet. Synchronized
+output freezes drawing while separate acknowledgement/effect packets keep the PTY draining and
+input modes current. Abandoned render holds expire after one second, even without more output.
+Device replies,
+focus and mouse reports go directly to their originating PTY, independently of input broadcasting.
+OSC 52 clipboard writes and Kitty filesystem/shared-memory reads are disabled.
+Linux text clipboard commands use the GTK display on the main loop so copying works on Wayland
+compositors without privileged data-control support. Reads return asynchronously with a timeout;
+displays without an input seat report an error. Native compatibility adapters convert Sixel and
+iTerm2 inline images to Ghostty-owned Kitty placements; unsupported or
+oversized images are ignored. Normal-buffer snapshots retain styles and bounded history without
+restoring running processes or sending replies to a PTY. Scrollback limits are bytes (zero disables
+history), capped at 1 GB per pane; image storage is capped at 1 GB and individual compatibility
+images at 64 MB. Regex search uses Rust regex syntax, including Unicode and case options; lookaround
+and backreferences are unsupported. Search scans are limited to 16 MiB of text and bounded time
+budgets; narrow the search or reduce scrollback if a limit is reached.
+[Upstream VT API](https://lib.ghostty.org/vt/index.html).
 
 ```text
 TypeScript frontend (src/app)
