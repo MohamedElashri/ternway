@@ -1,3 +1,4 @@
+import { renderTerminalTab } from "../tab-view";
 import { renderTerminalControls } from "../terminal-controls";
 import { icon } from "../../icons";
 import type { ProcessInfo, RemoteFile, ServiceInfo } from "../../types";
@@ -64,9 +65,9 @@ export function renderTabStrip(controls = ""): string {
   const tabs = groups.map((group) => {
     const title = groupTitle(group);
     const active = group === activeGroup;
-    return `<div class="term-tab ${active ? "active" : ""}" role="tab" aria-selected="${active}" data-terminal-tab="${escapeHtml(group.focusedId)}" data-tab-group="${escapeHtml(group.id)}" title="${escapeHtml(title)}"><span class="term-tab-dot ${leaves(group.root).every(id => state.terminalTabs.find(tab => tab.id === id)?.phase === "dormant") ? "saved" : groupExited(group) ? "closed" : ""}"></span><span class="term-tab-title">${escapeHtml(title)}</span>${paneCount(group)}<button class="term-tab-close" data-terminal-close="${escapeHtml(group.id)}" aria-label="Close ${escapeHtml(title)}">${icon("close")}</button></div>`;
+    return renderTerminalTab({ id: group.id, paneId: group.focusedId, label: title, active, status: leaves(group.root).every(id => state.terminalTabs.find(tab => tab.id === id)?.phase === "dormant") ? "saved" : groupExited(group) ? "closed" : "online", details: paneCount(group) });
   }).join("");
-  return `<div class="tab-strip" role="tablist" aria-label="Terminal tabs">${tabs}<button class="term-tab-new" data-action="new-terminal" title="New tab" aria-label="New tab">${icon("plus")}</button>${controls ? `<span class="tab-strip-controls">${controls}</span>` : ""}</div>`;
+  return `<div class="tab-strip"><div class="terminal-tab-list" role="tablist" aria-label="Terminal tabs">${tabs}</div><div class="tab-strip-tools"><button class="term-tab-new" data-action="new-terminal" title="New tab" aria-label="New tab">${icon("plus")}</button>${controls ? `<span class="tab-strip-controls">${controls}</span>` : ""}</div></div>`;
 }
 
 export const groupExited = (group: TerminalGroup): boolean =>
@@ -81,7 +82,7 @@ export function paneCount(group: TerminalGroup): string {
 /** Local shells fill the content area below their tab strip. */
 function renderLocalTerminal(): string {
   const current = state.terminalTabs.find(tab => tab.id === state.activeTerminalTabId);
-  return `<section class="terminal-workspace terminal-workspace-local">${renderTabStrip()}${current?.phase === "dormant" ? `<div class="terminal-meta"><span>Saved layout · session not started</span><button class="text-button" data-action="reconnect-terminal">Start session</button></div>` : ""}<div class="terminal-surface" data-terminal-surface></div></section>`;
+  return `<section class="terminal-workspace terminal-workspace-local">${renderTabStrip()}${current?.phase === "dormant" ? `<div class="terminal-meta"><span>Saved layout · session not started</span><button class="text-button" data-action="reconnect-terminal">Start session</button></div>` : ""}${current ? `<div class="terminal-surface" data-terminal-surface></div>` : `<div class="terminal-empty"><div class="terminal-empty-art">${icon("terminal")}</div><h2>No local terminals open</h2><p>Open a new terminal when you’re ready.</p><button class="button button-primary" data-action="new-terminal">${icon("plus")} New terminal</button></div>`}</section>`;
 }
 
 export function renderProcesses(): string {

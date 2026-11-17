@@ -15,7 +15,7 @@ export interface ConnectionFolder {
 }
 
 /** Saved flat groups become folders without changing their connection profiles. */
-export function connectionFolderTree(servers: ServerProfile[], paths: string[] = []): ConnectionFolder {
+export function connectionFolderTree(servers: ServerProfile[], paths: string[] = [], order: string[] = []): ConnectionFolder {
   const root: ConnectionFolder = { path: "", name: "Ungrouped", children: [], servers: [], count: servers.length };
   const folders = new Map<string, ConnectionFolder>();
   const ensure = (value: string): ConnectionFolder => {
@@ -34,8 +34,9 @@ export function connectionFolderTree(servers: ServerProfile[], paths: string[] =
   };
   for (const path of paths) ensure(path);
   for (const server of servers) ensure(server.groupName ?? "").servers.push(server);
+  const ranks = new Map(order.map((path, index) => [path.toLocaleLowerCase(), index]));
   const count = (folder: ConnectionFolder): number => {
-    folder.children.sort((a, b) => a.name.localeCompare(b.name));
+    folder.children.sort((a, b) => { const rank = (ranks.get(a.path.toLocaleLowerCase()) ?? Infinity) - (ranks.get(b.path.toLocaleLowerCase()) ?? Infinity); return Number.isFinite(rank) && rank !== 0 ? rank : rank === Infinity ? 1 : rank === -Infinity ? -1 : a.name.localeCompare(b.name); });
     folder.count = folder.servers.length + folder.children.reduce((sum, child) => sum + count(child), 0);
     return folder.count;
   };
@@ -43,19 +44,24 @@ export function connectionFolderTree(servers: ServerProfile[], paths: string[] =
   return root;
 }
 
-export function renderConnectionFolders(servers: ServerProfile[], paths: string[], collapsed: Set<string>, searching: boolean, renderItem: (server: ServerProfile) => string): string {
-  const root = connectionFolderTree(servers, searching ? [] : paths);
-  const renderFolder = (folder: ConnectionFolder): string => {
-    const key = `folder:${folder.path.toLocaleLowerCase()}`;
-    return `<details class="server-group connection-folder" data-connection-group="${escapeHtml(key)}" ${searching || !collapsed.has(key) ? "open" : ""}><summary class="server-group-label"><span class="folder-glyph">${icon("folder")}</span><span class="group-label-full">${escapeHtml(folder.name)}</span><span class="group-label-short" aria-hidden="true">${escapeHtml(folder.name.slice(0, 4))}</span><span class="group-count">${folder.count}</span></summary><div class="connection-folder-contents">${folder.servers.map(renderItem).join("")}${folder.children.map(renderFolder).join("")}${!folder.count && !folder.children.length ? '<div class="server-empty">Empty folder</div>' : ""}</div></details>`;
-  };
-  return root.children.map(renderFolder).join("") + (root.servers.length ? `<details class="server-group" data-connection-group="ungrouped" ${searching || !collapsed.has("ungrouped") ? "open" : ""}><summary class="server-group-label"><span class="group-label-full">Ungrouped</span><span class="group-label-short" aria-hidden="true">Other</span><span class="group-count">${root.servers.length}</span></summary>${root.servers.map(renderItem).join("")}</details>` : "");
-}
+export interface FolderPresentation { defaultName?: string; order?: string[]; menuFolder?: string | null }
 
-export function renderFolderManager(servers: ServerProfile[], paths: string[] = []): string {
-  const root = connectionFolderTree(servers, paths);
-  const folders: ConnectionFolder[] = [];
-  const visit = (folder: ConnectionFolder): void => { for (const child of folder.children) { folders.push(child); visit(child); } };
-  visit(root);
-  return `<div class="modal-body form-stack"><button class="button button-primary" data-action="create-connection-folder">${icon("plus")} New folder</button><div class="folder-manager-list">${folders.map(folder => `<div class="folder-manager-row"><span>${escapeHtml(folder.path)} <small>(${folder.count})</small></span><button class="button button-quiet small-button" data-action="rename-connection-folder" data-folder="${escapeHtml(folder.path)}" aria-label="Rename or move ${escapeHtml(folder.path)}">Rename / move</button><button class="button button-quiet small-button" data-action="delete-connection-folder" data-folder="${escapeHtml(folder.path)}" aria-label="Remove folder ${escapeHtml(folder.path)}">Remove</button></div>`).join("") || "<p>No folders yet.</p>"}</div><h3>Move connections</h3>${servers.map(server => `<div class="folder-manager-row"><span><strong>${escapeHtml(server.name)}</strong><small>${escapeHtml(server.groupName || "Ungrouped")}</small></span><button class="button button-quiet small-button" data-action="move-connection-folder" data-connection-id="${escapeHtml(server.id)}" aria-label="Move ${escapeHtml(server.name)} to a folder">Move…</button></div>`).join("") || "<p>No saved connections.</p>"}<div class="modal-actions"><button class="button button-primary" data-action="close-modal">Done</button></div></div>`;
+export function renderConnectionFolders(servers: ServerProfile[], paths: string[], collapsed: Set<string>, searching: boolean, renderItem: (server: ServerProfile) => string, options: FolderPresentation = {}): string {
+  const root = connectionFolderTree(servers, searching ? [] : paths, options.order);
+  const renderFolder = (folder: ConnectionFolder, permanent = false): string => {
+    const path = permanent ? "" : folder.path;
+    const key = permanent ? "ungrouped" : `folder:${path.toLocaleLowerCase()}`;
+    const name = permanent ? options.defaultName ?? "Default" : folder.name;
+    const menuOpen = options.menuFolder === path;
+    const count = permanent ? folder.servers.length : folder.count;
+    return `<details class="server-group connection-folder ${permanent ? "default-folder" : ""}" data-folder="${escapeHtml(path)}" data-connection-group="${escapeHtml(key)}" ${searching || menuOpen || !collapsed.has(key) ? "open" : ""}>
+      <summary class="server-group-label" data-folder-path="${escapeHtml(path)}" title="${permanent ? "Default folder" : "Drag to reorder folders · Alt+↑/↓ to move"}">
+        <span class="folder-chevron" aria-hidden="true">${icon("chevron")}</span>
+        <button type="button" class="folder-label" data-action="folder-actions" data-folder="${escapeHtml(path)}" aria-expanded="${menuOpen}" aria-label="Actions for ${escapeHtml(name)}"><span class="folder-glyph">${icon("folder")}</span><span class="group-label-full">${escapeHtml(name)}</span>${permanent && name !== "Default" ? '<span class="folder-default-badge">Default</span>' : ""}</button>
+        <span class="group-count">${count}</span><button class="folder-add" type="button" data-action="create-connection-folder" data-parent="${escapeHtml(path)}" aria-label="${permanent ? "Create folder" : `Create subfolder in ${escapeHtml(name)}`}" title="${permanent ? "New folder" : "New subfolder"}">${icon("plus")}</button>
+      </summary>
+      ${menuOpen ? `<div class="folder-actions" role="group" aria-label="${escapeHtml(name)} folder actions"><button type="button" data-action="rename-connection-folder" data-folder="${escapeHtml(path)}">Rename</button>${permanent ? '<span class="folder-protection">Default folder · always kept</span>' : `<button type="button" class="danger-action" data-action="delete-connection-folder" data-folder="${escapeHtml(path)}">Delete folder</button>`}</div>` : ""}
+      <div class="connection-folder-contents">${folder.servers.map(renderItem).join("")}${permanent ? "" : folder.children.map(child => renderFolder(child)).join("")}${!count && (permanent || !folder.children.length) ? '<div class="server-empty">No connections</div>' : ""}</div></details>`;
+  };
+  return (!searching || root.servers.length ? renderFolder(root, true) : "") + root.children.map(folder => renderFolder(folder)).join("");
 }

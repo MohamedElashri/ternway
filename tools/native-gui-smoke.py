@@ -123,6 +123,9 @@ def compact_terminal_geometry():
 
 def start():
     global session
+    # WebKit resets pooled HTTP connections when the previous application exits.
+    # A safe status read establishes readiness before the one-shot session POST.
+    wait(lambda: request("GET", "/status").get("ready"), "native driver ready for a new session")
     response = request("POST", "/session", {"capabilities": {"alwaysMatch": {"tauri:options": {"application": str(binary)}}}})
     session = response["sessionId"]
     request("POST", f"/session/{session}/timeouts", {"script": 30000, "pageLoad": 30000, "implicit": 0})
@@ -146,10 +149,23 @@ try:
     wait(lambda: request("GET", "/status") is not None, "driver startup")
     start()
     def check_startup_size():
-        size = execute("return {width:window.innerWidth,height:window.innerHeight};")
+        size = wait(lambda: execute("return {width:window.innerWidth,height:window.innerHeight};"), "startup window geometry")
         assert 1100 <= size['width'] <= 1440 and 700 <= size['height'] <= 900, size
     check_startup_size()
     check('fresh native window opens at its configured usable size')
+    wait(lambda: element('.xterm-helper-textarea'), 'initial local shell')
+    click('.term-tab-close')
+    wait(lambda: shown('.terminal-empty') or shown('[data-app-dialog]'), 'close final local terminal')
+    if shown('[data-app-dialog]'):
+        click('[data-action="accept-app-dialog"]')
+    wait(lambda: shown('.terminal-empty'), 'last local shell stays closed')
+    assert execute("return document.querySelectorAll('.terminal-host').length;") == 0
+    click('[data-workspace-close="local"]')
+    wait(lambda: not shown('.workspace-tab-local'), 'local workspace closes')
+    click('[data-action="open-local"]')
+    wait(lambda: element('.xterm-helper-textarea'), 'explicitly reopen local workspace')
+    assert execute("return document.querySelectorAll('.term-tab').length;") == 1
+    check('last local terminal and Local workspace close without replacement shells and reopen explicitly')
     textarea = wait(lambda: element('.xterm-helper-textarea'), "local terminal")
     # The marker is encoded in the command so shell echo cannot satisfy this assertion.
     expected = "CI_NATIVE_λ_漢字"
@@ -203,10 +219,27 @@ try:
     assert sections[-1] == "About", sections
     assert execute("return document.querySelector('#app').dataset.colorTheme;") == 'github-dark'
     theme_backgrounds = [('github-light','#ffffff'), ('github-dark','#0d1117'), ('github-dark-dimmed','#22272e'), ('github-light-high-contrast','#ffffff'), ('github-dark-high-contrast','#0a0c10'), ('github-light-colorblind','#ffffff'), ('github-dark-colorblind','#0d1117'), ('dracula','#282a36')]
+    def primary_button_metrics():
+        return execute("""
+          const button=document.querySelector('.settings-footer .button-primary'),style=getComputedStyle(button),rect=button.getBoundingClientRect();
+          const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const context=canvas.getContext('2d');
+          const rgb=color=>{context.clearRect(0,0,1,1);context.fillStyle=color;context.fillRect(0,0,1,1);return [...context.getImageData(0,0,1,1).data].slice(0,3);};
+          const luminance=values=>values.map(value=>{value/=255;return value<=.04045?value/12.92:((value+.055)/1.055)**2.4;}).reduce((sum,value,index)=>sum+value*[.2126,.7152,.0722][index],0);
+          const foreground=luminance(rgb(style.color)),background=luminance(rgb(style.backgroundColor));
+          return {contrast:(Math.max(foreground,background)+.05)/(Math.min(foreground,background)+.05),background:rgb(style.backgroundColor).join(','),accent:rgb(getComputedStyle(document.documentElement).getPropertyValue('--accent')).join(','),x:rect.left+rect.width/2,y:rect.top+rect.height/2,height:rect.height,top:rect.top,shadow:style.boxShadow,transform:style.transform};
+        """)
+    def hover_point(x,y):
+        request('POST', f'/session/{session}/actions', {'actions':[{'type':'pointer','id':'button-hover','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':0,'origin':'viewport','x':int(x),'y':int(y)}]}]})
     for theme_id, background in theme_backgrounds:
         click(f'[data-theme-id="{theme_id}"]')
         wait(lambda: execute("return document.querySelector('#app').dataset.colorTheme===arguments[0] && getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()===arguments[1];", theme_id, background), f'live {theme_id} workspace and terminal palette')
         assert execute("return document.querySelector('.terminal-layer').textContent.includes(arguments[0]);", expected), 'Theme changes preserve terminal output'
+        hover_point(5,5)
+        normal=wait(lambda: (value if (value:=primary_button_metrics())['background']==value['accent'] else None), 'normal button palette')
+        assert normal['contrast']>=4.5 and normal['height']==34 and normal['shadow']=='none', (theme_id,normal)
+        hover_point(normal['x'],normal['y'])
+        hovered=wait(lambda: (value if (value:=primary_button_metrics())['background']!=normal['background'] else None), 'button hover palette')
+        assert hovered['contrast']>=4.5 and hovered['transform']=='none' and hovered['top']==normal['top'], (theme_id,hovered)
         if theme_id in ['github-dark','github-light']:
             screenshot(theme_id + '.png')
     original_config = (config / 'config').read_text()
@@ -218,7 +251,7 @@ try:
     wait(lambda: execute("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#ffffff';"), 'terminal returns to preset after removing color override')
     click('[data-theme-id="github-dark-dimmed"]')
     wait(lambda: execute("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#22272e';"), 'dimmed palette restored')
-    check('all built-in themes apply live without losing terminal output and preserve explicit config colors')
+    check('all built-in themes apply live; primary buttons retain text contrast and stable hover geometry in every theme')
     click('[data-action="close-modal"]')
     assert execute("return document.querySelectorAll('[data-action=theme]').length;") == 1
     click('[data-action="theme"]')
@@ -272,42 +305,61 @@ try:
     check("native SSH import excludes Git by default, stays readable and deduplicates repeat imports")
 
     saved_connection = next(server for server in invoke('get_state')['servers'] if server['name'] == 'CI save only')
-    click('[data-action="connection-folders"]')
-    click('[data-action="create-connection-folder"]')
-    type_into('[data-form="input-prompt"] [name="value"]', 'Work/Production')
+    def folder_selector(path):
+        return f'.connection-folder[data-folder="{path}"]'
+    def create_folder(parent, name):
+        click(f'[data-action="create-connection-folder"][data-parent="{parent}"]')
+        type_into('[data-form="input-prompt"] [name="value"]', name)
+        click('[data-form="input-prompt"] button[type="submit"]')
+        path = f'{parent}/{name}' if parent else name
+        wait(lambda: path in invoke('get_state')['connectionFolders'], 'inline folder create')
+    def sidebar_drag(source, target, after=False):
+        points = execute("const a=document.querySelector(arguments[0]),b=document.querySelector(arguments[1]);a.scrollIntoView({block:'nearest'});b.scrollIntoView({block:'nearest'});const r=a.getBoundingClientRect(),s=b.getBoundingClientRect();return {x:r.left+25,y:r.top+r.height/2,tx:s.left+25,ty:s.top+s.height*(arguments[2] ? 0.75 : 0.25)};", source, target, after)
+        request('POST', f'/session/{session}/actions', {'actions':[{'type':'pointer','id':'sidebar-drag','parameters':{'pointerType':'mouse'},'actions':[
+          {'type':'pointerMove','duration':0,'origin':'viewport','x':int(points['x']),'y':int(points['y'])},
+          {'type':'pointerDown','button':0},
+          {'type':'pointerMove','duration':400,'origin':'viewport','x':int(points['tx']),'y':int(points['ty'])},
+          {'type':'pointerUp','button':0}]}]})
+    assert not shown('[data-action="connection-order"]') and not shown('[data-action="connection-folders"]')
+    click('[data-action="folder-actions"][data-folder=""]')
+    assert not shown('[data-action="delete-connection-folder"][data-folder=""]')
+    click('[data-action="rename-connection-folder"][data-folder=""]')
+    type_into('[data-form="input-prompt"] [name="value"]', 'Home')
     click('[data-form="input-prompt"] button[type="submit"]')
-    wait(lambda: 'Work/Production' in invoke('get_state')['connectionFolders'], 'nested folder persisted')
-    click(f'[data-action="move-connection-folder"][data-connection-id="{saved_connection["id"]}"]')
-    type_into('[data-form="input-prompt"] [name="value"]', 'Work/Production')
-    click('[data-form="input-prompt"] button[type="submit"]')
-    wait(lambda: next(server for server in invoke('get_state')['servers'] if server['id'] == saved_connection['id'])['groupName'] == 'Work/Production', 'connection moved into folder')
+    wait(lambda: invoke('get_state')['defaultConnectionFolder']=='Home', 'rename default folder')
+    create_folder('', 'Work')
+    create_folder('Work', 'Production')
+    sidebar_drag(f'.server-item[data-server-id="{saved_connection["id"]}"]', '[data-folder-path="Work/Production"]')
+    wait(lambda: next(server for server in invoke('get_state')['servers'] if server['id']==saved_connection['id'])['groupName']=='Work/Production', 'drag connection into nested folder')
+    click('[data-action="folder-actions"][data-folder="Work"]')
     click('[data-action="rename-connection-folder"][data-folder="Work"]')
     type_into('[data-form="input-prompt"] [name="value"]', 'Company')
     click('[data-form="input-prompt"] button[type="submit"]')
-    wait(lambda: 'Company/Production' in invoke('get_state')['connectionFolders'], 'folder subtree renamed')
-    click('[data-action="create-connection-folder"]')
+    wait(lambda: 'Company/Production' in invoke('get_state')['connectionFolders'], 'rename folder subtree inline')
+    create_folder('', 'Temporary')
+    sidebar_drag('[data-folder-path="Temporary"]', '[data-folder-path="Company"]')
+    wait(lambda: invoke('get_state')['connectionFolderOrder'][0]=='Temporary', 'drag folder order persists')
+    other_connection = next(server for server in invoke('get_state')['servers'] if server['id']!=saved_connection['id'])
+    sidebar_drag(f'.server-item[data-server-id="{other_connection["id"]}"]', '[data-folder-path="Temporary"]')
+    wait(lambda: next(server for server in invoke('get_state')['servers'] if server['id']==other_connection['id'])['groupName']=='Temporary', 'move connection before folder removal')
+    click('[data-action="folder-actions"][data-folder="Temporary"]')
+    click('[data-action="delete-connection-folder"][data-folder="Temporary"]')
+    click('[data-action="accept-app-dialog"]')
+    wait(lambda: 'Temporary' not in invoke('get_state')['connectionFolders'], 'folder removed')
+    assert next(server for server in invoke('get_state')['servers'] if server['id']==other_connection['id'])['groupName'] is None
+    assert shown(f'.default-folder .server-item[data-server-id="{other_connection["id"]}"]')
+    sidebar_drag(f'.server-item[data-server-id="{other_connection["id"]}"]', '[data-folder-path="Company/Production"]')
+    wait(lambda: next(server for server in invoke('get_state')['servers'] if server['id']==other_connection['id'])['groupName']=='Company/Production', 'move back from default folder')
+    original_order = execute("return Array.from(document.querySelectorAll('[data-connection-group=\"folder:company/production\"] .server-item')).map(row=>row.dataset.serverId);")
+    sidebar_drag(f'.server-item[data-server-id="{original_order[0]}"]', f'.server-item[data-server-id="{original_order[1]}"]', after=True)
+    wait(lambda: invoke('get_state')['connectionOrder']==list(reversed(original_order)), 'drag connection order persists')
+    click('[data-action="create-connection-folder"][data-parent=""]')
     click('[data-form="input-prompt"] [data-action="close-modal"]')
-    wait(lambda: shown('[data-action="create-connection-folder"]'), 'cancel returns to folder manager')
-    click('[data-action="close-modal"]')
-    assert shown('[data-connection-group="folder:company/production"]')
-    assert execute("return document.querySelector('.connection-folder .server-item-copy').getBoundingClientRect().width >= 100;"), 'Nested connection names need room beside row actions'
+    assert shown('[data-folder-path=""]'), 'Cancel returns to inline folder controls'
+    assert execute("return document.querySelector('.connection-folder .server-item-copy').getBoundingClientRect().width >= 100;"), 'Nested names retain room'
     screenshot('connection-folders.png')
-    check('folder UI creates nested folders, moves connections, renames subtrees and returns on cancel')
-    other_connection = next(server for server in invoke('get_state')['servers'] if server['id'] != saved_connection['id'])
-    click('[data-action="connection-folders"]')
-    click(f'[data-action="move-connection-folder"][data-connection-id="{other_connection["id"]}"]')
-    type_into('[data-form="input-prompt"] [name="value"]', 'Company/Production')
-    click('[data-form="input-prompt"] button[type="submit"]')
-    wait(lambda: next(server for server in invoke('get_state')['servers'] if server['id'] == other_connection['id'])['groupName'] == 'Company/Production', 'second connection moved into folder')
-    click('[data-action="close-modal"]')
-    click('[data-action="connection-order"]')
-    original_order = execute("return Array.from(document.querySelectorAll('.connection-order-row')).map(row=>row.querySelector('[data-connection-id]').dataset.connectionId);")
-    click(f'[data-action="move-connection-down"][data-connection-id="{original_order[0]}"]')
-    wait(lambda: invoke('get_state')['connectionOrder'] == list(reversed(original_order)), 'connection order persisted inside nested folder')
-    click('[data-action="close-modal"]')
-    wait(lambda: execute("return Array.from(document.querySelectorAll('[data-connection-group=\"folder:company/production\"] .server-item')).map(row=>row.dataset.serverId);") == list(reversed(original_order)), 'sidebar reflects saved ordering')
     screenshot('connection-order-folders.png')
-    check('saved connection order agrees with sidebar order inside nested folders')
+    check('inline folders create, rename, drag and delete; protected renamed default receives removed-folder contents; connection drag order persists')
 
     backup = root / "library.json"
     invoke("export_library_backup", path=str(backup), includeSecrets=False)
@@ -350,6 +402,24 @@ try:
     assert execute("return document.querySelectorAll('[data-action=theme]').length;") == 1, 'Remote sidebar must not duplicate the global theme toggle'
     click('.nav-item[data-view="terminal"]')
     wait(lambda: execute("return document.querySelector('.terminal-layer')?.textContent.includes('fixture-terminal-ready');"), 'interactive SSH terminal output')
+    def check_tab_alignment():
+        def measured():
+            return execute("const work=[...document.querySelectorAll('.workspace-tab')].map(el=>{const r=el.getBoundingClientRect();return {height:r.height,top:r.top};});const terms=[...document.querySelectorAll('.term-tab')].map(el=>el.getBoundingClientRect().height);const visible=[...document.querySelectorAll('.workspace-tabs .workspace-tab.active,.terminal-tab-list .term-tab.active')].every(el=>{const a=el.getBoundingClientRect(),b=el.parentElement.getBoundingClientRect();return a.left>=b.left-1&&a.right<=b.right+1;});return {work,terms,visible,nested:document.querySelectorAll('button button').length};")
+        geometry = wait(lambda: (value if (value:=measured())['visible'] else None), 'selected tab and close control stay visible after resize')
+        assert geometry['work'] and all(abs(tab['height']-34)<1 for tab in geometry['work']), geometry
+        assert max(tab['top'] for tab in geometry['work'])-min(tab['top'] for tab in geometry['work'])<1, geometry
+        assert all(abs(height-34)<1 for height in geometry['terms']), geometry
+        assert geometry['nested']==0, geometry
+    check_tab_alignment()
+    workspace_point=execute("const rect=document.querySelector('.workspace-tab.active:not(.workspace-tab-local)').getBoundingClientRect();return {x:rect.left+60,y:rect.top+rect.height/2};")
+    request('POST', f'/session/{session}/actions', {'actions':[{'type':'pointer','id':'workspace-rename','parameters':{'pointerType':'mouse'},'actions':[
+      {'type':'pointerMove','duration':0,'origin':'viewport','x':int(workspace_point['x']),'y':int(workspace_point['y'])},
+      {'type':'pointerDown','button':0},{'type':'pointerUp','button':0},{'type':'pause','duration':100},
+      {'type':'pointerDown','button':0},{'type':'pointerUp','button':0}]}]})
+    wait(lambda: shown('[data-form="workspace-tab-rename"]'), 'double-click renames selected workspace without rebuilding its click target')
+    type_into('[data-form="workspace-tab-rename"] [name="label"]', 'QA remote')
+    click('[data-form="workspace-tab-rename"] button[type="submit"]')
+    wait(lambda: execute("return document.querySelector('.workspace-tab.active .workspace-tab-copy')?.textContent==='QA remote';"), 'workspace label saved')
     def remote_input(text):
         target = execute("return document.querySelector('.terminal-host:not([hidden]) .xterm-helper-textarea');")
         request('POST', f'/session/{session}/element/{target["element-6066-11e4-a52e-4f735466cecf"]}/value', {'text':text})
@@ -358,6 +428,7 @@ try:
     for width, height in [(1400, 900), (820, 650), (640, 480)]:
         request('POST', f'/session/{session}/window/rect', {'width':width, 'height':height})
         wait(lambda: execute('return Math.abs(window.innerWidth-arguments[0])<=16;', width), 'resized remote terminal viewport')
+        check_tab_alignment()
         compact_terminal_geometry()
     screenshot('remote-terminal-compact.png')
     click('[data-action="clear-terminal"]')
@@ -383,6 +454,7 @@ try:
     wait(lambda: execute('return Math.abs(window.innerWidth-1400)<=16;'), 'desktop viewport restored after narrow terminal checks')
     click('.nav-item[data-view="dashboard"]')
     wait(lambda: execute("return !!document.querySelector('.nav-item.active[data-view=dashboard]') && !!document.querySelector('.page-head');"), 'overview restored before remote-tool navigation')
+    screenshot('workspace-terminal-tabs.png')
     check('remote SSH terminal uses one compact control row and fills desktop/narrow windows, with working input, Clear and reconnect')
     for view, expected_text in [
         ('processes', '/usr/bin/fixture --label two words'),

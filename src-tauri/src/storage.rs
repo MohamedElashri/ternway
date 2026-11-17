@@ -124,6 +124,8 @@ impl Store {
             .execute_batch(
                 "CREATE TABLE IF NOT EXISTS connection_order (server_id TEXT PRIMARY KEY NOT NULL REFERENCES servers(id) ON DELETE CASCADE, position INTEGER NOT NULL);
                  CREATE TABLE IF NOT EXISTS connection_folders (path TEXT PRIMARY KEY NOT NULL);
+                 CREATE TABLE IF NOT EXISTS connection_folder_order (path TEXT PRIMARY KEY NOT NULL REFERENCES connection_folders(path) ON DELETE CASCADE, position INTEGER NOT NULL);
+                 CREATE TABLE IF NOT EXISTS library_preferences (name TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
                  CREATE TABLE IF NOT EXISTS import_origins (source_key TEXT PRIMARY KEY NOT NULL, server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE, snapshot_json TEXT NOT NULL);
                  CREATE TABLE IF NOT EXISTS restore_marker (token TEXT NOT NULL);
                  CREATE TABLE IF NOT EXISTS password_references (server_id TEXT PRIMARY KEY NOT NULL REFERENCES servers(id) ON DELETE CASCADE, reference_json TEXT NOT NULL);

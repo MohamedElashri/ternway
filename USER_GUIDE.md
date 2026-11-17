@@ -22,15 +22,33 @@ Remote features detect what each server supports instead of assuming a distribut
 
 ## Organizing connections
 
-Use **Reorder connections** beside the sidebar heading to move saved connections up or down
-within their folder. The order is saved across restarts and included in library backups.
-**Use automatic order** restores sorting by favorites, recent use and name.
+Drag connections to change their order or drop them onto a folder heading to move them.
+Drag folder headings to reorder folders at the same level. The default folder stays first.
+With a connection or folder focused, **Alt+↑/↓** moves it using the keyboard.
 
-Use **Organize folders** beside the Connections heading to create folders, move connections,
-or rename and move whole folders. Use paths such as `Work/Production` for nested folders.
-Folders can stay empty. Existing connection groups appear as folders automatically.
-Removing a folder moves its connections to Ungrouped. Folder organization is saved across
-restarts, shared between windows and included in library backups.
+Use **+** beside a folder heading to create a folder or subfolder. Click a folder’s name for
+**Rename** and **Delete folder**. The permanent default folder can be renamed and cannot be
+deleted. New connections go there unless you choose another folder; deleting a folder moves
+its connections and its subfolders’ connections back to the default folder.
+
+Empty folders are kept. Existing groups appear as folders automatically. Names, membership and
+ordering are saved across restarts, shared between windows and included in library backups.
+
+## Workspaces and tabs
+
+Close any local terminal with its **×**, including the last one. Ternway leaves an empty terminal
+workspace until you choose **New terminal**. The **×** on the **Local** workspace closes all its
+local tabs and splits, with confirmation when jobs are running. Reopen it using the local-terminal
+control in the workspace bar or **Local shells** in the command palette. Saved layouts remember
+when Local is closed.
+
+Workspace and terminal tabs use the same spacing and close controls. Use **←/→**, **Home** and
+**End** when a tab has keyboard focus to navigate, **Delete** to close it, or **F2** to rename a
+remote workspace or terminal tab. Double-clicking its title also opens rename. Drag tabs to
+reorder them; Local stays first among workspaces.
+
+The terminal engine is **xterm.js 6**, with Rust managing PTYs and SSH. Ghostty-style configuration
+and keybindings are supported; Ghostty itself is not embedded.
 
 ## Keybindings
 
@@ -155,9 +173,9 @@ for your password. Builds from source show a link to the releases page instead.
 
 ## Session restore
 
-Local tabs come back after a restart: layout, each pane's directory (with shell integration) and
-profile, and up to 1,000 lines of scrollback per pane. Full-screen programs and server tabs are
-not restored. Set `window-save-state = never` to turn it off.
+Saved terminal tabs come back dormant after a restart: layout, each pane's directory (with shell integration) and
+profile, and up to 1,000 lines of scrollback per pane. Running programs are not resumed, and no commands are replayed. Local remains closed when
+you saved the layout that way. Set `window-save-state = never` to turn it off.
 
 ## Configuration
 

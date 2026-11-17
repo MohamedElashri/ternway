@@ -24,6 +24,7 @@ mod remote_edit;
 mod transfer_queue;
 mod connection_library;
 mod connection_folders;
+mod connection_sidebar;
 mod library_backup;
 mod remote_fs;
 mod sftp_wire;
@@ -272,6 +273,8 @@ fn get_state(state: State<'_, AppState>) -> Result<AppStateSnapshot, AppError> {
         servers: state.store.list_servers()?,
         connection_order: state.store.connection_order()?,
         connection_folders: state.store.connection_folders()?,
+        connection_folder_order: state.store.connection_folder_order()?,
+        default_connection_folder: state.store.default_connection_folder()?,
         identities: state.store.list_identities()?,
         ssh_keys,
         ssh_config_entries,
@@ -1891,6 +1894,8 @@ pub fn run() {
             set_ssh_password,
             set_connection_group,
             connection_library::set_connection_order,
+            connection_sidebar::reorganize_connection,
+            connection_sidebar::set_connection_folder_order,
             connection_folders::create_connection_folder,
             connection_folders::rename_connection_folder,
             connection_folders::delete_connection_folder,

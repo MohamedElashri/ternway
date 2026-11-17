@@ -63,12 +63,14 @@ export class AppState {
     ? storedInterfaceScale
     : DEFAULT_INTERFACE_SCALE;
   snapshot: AppStateSnapshot = { identities: [], version: 1, servers: [], sshKeys: [], sshConfigEntries: [] };
+  localWorkspaceOpen = true;
   activeServerId: string | null = null;
   activeWorkspaceTabId: string | null = null;
   openServerTabs: WorkspaceTab[] = [];
   sidebarCopyPlacement: { sourceId: string; copyId: string } | null = null;
   activeView: View = "dashboard";
   serverQuery = "";
+  folderMenuPath: string | null = null;
   themeId = storedAppearance.id;
   darkMode = storedAppearance.mode === "dark";
   loading = true;
