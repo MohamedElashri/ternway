@@ -222,6 +222,9 @@ try:
     native_terminal_review.run(globals())
     for width, height in [(1000, 700), (1280, 850), (1080, 720), (1400, 900)]:
         request("POST", f"/session/{session}/window/rect", {"width": width, "height": height})
+        # Native decorations make the compositor's resize asynchronous. Wait
+        # for the webview before measuring targets for the following tab drag.
+        wait(lambda: read('return Math.abs(window.innerWidth-arguments[0])<=16;', width), 'resized local terminal viewport')
     check("window resizing keeps the terminal alive")
 
     click('[data-action="new-terminal"]')
@@ -648,7 +651,12 @@ try:
     wait(lambda: shown('[data-update-notice] [data-action="restart-update"]'), 'other window receives restart readiness')
     request('POST', f'/session/{session}/window', {'handle':update_handle})
     click('[data-update-notice] [data-action="restart-update"]')
-    click('[data-action="cancel-app-dialog"]')
+    try:
+        click('[data-action="cancel-app-dialog"]')
+    except (http.client.RemoteDisconnected, urllib.error.URLError):
+        # WebKit may reset transport while dismissing the modal. Do not replay
+        # a potentially delivered click; verify its result through safe reads.
+        wait(lambda: not shown('[data-action="cancel-app-dialog"]'), 'restart cancellation delivered before transport reset')
     assert read('return window.__ternwayUpdateTest.restarts;') == 0, 'Cancel leaves active terminals running'
     click('[data-action="credential-settings"]')
     click('[data-settings-page="updates"]')
