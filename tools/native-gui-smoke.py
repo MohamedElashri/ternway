@@ -146,7 +146,7 @@ try:
     wait(lambda: request("GET", "/status") is not None, "driver startup")
     start()
     def check_startup_size():
-        size = execute("return {width:window.innerWidth,height:window.innerHeight};")
+        size = wait(lambda: execute("return {width:window.innerWidth,height:window.innerHeight};"), "startup window geometry")
         assert 1100 <= size['width'] <= 1440 and 700 <= size['height'] <= 900, size
     check_startup_size()
     check('fresh native window opens at its configured usable size')
