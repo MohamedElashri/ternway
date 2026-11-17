@@ -349,6 +349,7 @@ try:
         click('[data-form="input-prompt"] button[type="submit"]')
         path = f'{parent}/{name}' if parent else name
         wait(lambda: path in invoke('get_state')['connectionFolders'], 'inline folder create')
+        wait(lambda: shown(folder_selector(path)), 'created folder rendered')
     def sidebar_drag(source, target, after=False):
         wait(lambda: shown(source) and shown(target), 'drag source and target rendered after persistence')
         points = execute("const a=document.querySelector(arguments[0]),b=document.querySelector(arguments[1]);a.scrollIntoView({block:'nearest'});b.scrollIntoView({block:'nearest'});const r=a.getBoundingClientRect(),s=b.getBoundingClientRect();return {x:r.left+25,y:r.top+r.height/2,tx:s.left+25,ty:s.top+s.height*(arguments[2] ? 0.75 : 0.25)};", source, target, after)
@@ -384,10 +385,13 @@ try:
     click('[data-action="accept-app-dialog"]')
     wait(lambda: 'Temporary' not in invoke('get_state')['connectionFolders'], 'folder removed')
     assert next(server for server in invoke('get_state')['servers'] if server['id']==other_connection['id'])['groupName'] is None
-    assert shown(f'.default-folder .server-item[data-server-id="{other_connection["id"]}"]')
+    wait(lambda: shown(f'.default-folder .server-item[data-server-id="{other_connection["id"]}"]'), 'deleted-folder contents rendered in default folder')
     sidebar_drag(f'.server-item[data-server-id="{other_connection["id"]}"]', '[data-folder-path="Company/Production"]')
     wait(lambda: next(server for server in invoke('get_state')['servers'] if server['id']==other_connection['id'])['groupName']=='Company/Production', 'move back from default folder')
-    original_order = execute("return Array.from(document.querySelectorAll('[data-connection-group=\"folder:company/production\"] .server-item')).map(row=>row.dataset.serverId);")
+    def rendered_connection_order():
+        order=execute("return Array.from(document.querySelectorAll('[data-connection-group=\"folder:company/production\"] .server-item')).map(row=>row.dataset.serverId);")
+        return order if len(order)==2 else None
+    original_order = wait(rendered_connection_order, 'both moved connections rendered before reordering')
     sidebar_drag(f'.server-item[data-server-id="{original_order[0]}"]', f'.server-item[data-server-id="{original_order[1]}"]', after=True)
     wait(lambda: invoke('get_state')['connectionOrder']==list(reversed(original_order)), 'drag connection order persists')
     click('[data-action="create-connection-folder"][data-parent=""]')
