@@ -13,6 +13,10 @@ export interface GhosttyFrame {
 }
 export interface GhosttyImage { key: string; data: string | null; width: number; height: number; x: number; y: number; offsetX: number; offsetY: number; drawWidth: number; drawHeight: number; sourceX: number; sourceY: number; sourceWidth: number; sourceHeight: number; above: boolean; z: number }
 export interface Highlight { start: number; end: number; color: string }
+/** Ghostty's modifier ABI (different from the numeric ANSI modifier parameter). */
+export function ghosttyModifiers(event: Pick<MouseEvent, "shiftKey" | "ctrlKey" | "altKey" | "metaKey">): number {
+  return (event.shiftKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.altKey ? 4 : 0) | (event.metaKey ? 8 : 0);
+}
 export const rowText = (row: GhosttyCell[]): string => row.map(cell => cell.text).join("");
 /** UTF-16 offsets map back to native cell columns, including wide/combining graphemes. */
 export function rowColumns(row: GhosttyCell[]): number[] {

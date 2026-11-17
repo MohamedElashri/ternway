@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { drawGhostty, rowColumns, rowText, type GhosttyFrame } from "../src/app/ghostty-renderer.ts";
+import { drawGhostty, ghosttyModifiers, rowColumns, rowText, type GhosttyFrame } from "../src/app/ghostty-renderer.ts";
+
+test("Control and Alt use Ghostty ABI bits for keyboard and pointer input", () => {
+  const base = { shiftKey: false, ctrlKey: false, altKey: false, metaKey: false };
+  assert.equal(ghosttyModifiers({ ...base, ctrlKey: true }), 2);
+  assert.equal(ghosttyModifiers({ ...base, altKey: true }), 4);
+  assert.equal(ghosttyModifiers({ ...base, shiftKey: true, ctrlKey: true }), 3);
+  assert.equal(ghosttyModifiers({ ...base, metaKey: true }), 8);
+});
 
 test("native cell coordinates survive wide, combining and UTF-16 graphemes", () => {
   const cells = [

@@ -4,7 +4,7 @@ import { DEFAULT_HIGHLIGHT, type Trigger } from "./config";
 import { findPathCandidates, opensLink, type PathLinkOptions } from "./links";
 import { parseDirectoryReport } from "./shell-integration";
 import { matchTriggers } from "./triggers";
-import { drawGhostty, rowColumns, rowText, type GhosttyFrame, type Highlight } from "./ghostty-renderer";
+import { drawGhostty, ghosttyModifiers, rowColumns, rowText, type GhosttyFrame, type Highlight } from "./ghostty-renderer";
 
 export interface TerminalAppearance {
   theme: TerminalTheme; fontFamily: string; fontSize: number;
@@ -19,7 +19,6 @@ export interface TerminalSurfaceOptions {
   onDirectory: (path: string, host: string) => void; onFinished: (command: { exitCode?: number }, seconds: number) => void;
 }
 interface SearchResult { resultIndex: number; resultCount: number; error?: string }
-const modifiers = (event: MouseEvent | KeyboardEvent): number => (event.shiftKey ? 1 : 0) | (event.altKey ? 2 : 0) | (event.ctrlKey ? 4 : 0) | (event.metaKey ? 8 : 0);
 
 /** One native terminal per pane. The host stays outside the re-rendered application tree. */
 export class TerminalSurface {
@@ -39,6 +38,7 @@ export class TerminalSurface {
   private selected = "";
   private programmaticScrollTop = 0;
   private selectionStart: [number, number] | undefined;
+  private nativeButton: number | undefined;
   private cellWidth = 9; private cellHeight = 20;
   private columns = 80; private rowCount = 24;
   private fitFrame: number | undefined;
@@ -93,7 +93,7 @@ export class TerminalSurface {
     this.canvas.addEventListener("pointerdown", event => this.pointer(event, "press"));
     this.canvas.addEventListener("pointermove", event => this.pointer(event, "motion"));
     this.canvas.addEventListener("pointerup", event => this.pointer(event, "release"));
-    this.canvas.addEventListener("pointercancel", () => { this.selectionStart = undefined; });
+    this.canvas.addEventListener("pointercancel", event => { if (this.nativeButton !== undefined) this.mouse(event, "release", this.nativeButton); this.nativeButton = undefined; this.selectionStart = undefined; });
     this.canvas.addEventListener("dblclick", event => { void this.selectWord(event); });
     this.canvas.addEventListener("click", event => { if (opensLink(event)) void this.openLink(event); });
     this.host.addEventListener("wheel", event => {
@@ -243,7 +243,7 @@ export class TerminalSurface {
     if (event.defaultPrevented || event.isComposing || this.composing || event.key === "Process" || event.key === "Dead") return;
     event.preventDefault();
     const text = Array.from(event.key).length === 1 ? event.key : null;
-    let mods = modifiers(event); if (event.getModifierState("AltGraph")) mods &= ~6;
+    let mods = ghosttyModifiers(event); if (event.getModifierState("AltGraph")) mods &= ~6;
     this.sendInput({ kind: "key", code: event.code, text, mods, release, repeat: event.repeat });
   }
   private point(event: MouseEvent): [number, number] {
@@ -252,7 +252,13 @@ export class TerminalSurface {
   }
   private pointer(event: PointerEvent, action: string): void {
     if (!this.frame) return;
-    if (this.frame.mouse && !event.shiftKey && !opensLink(event)) { event.preventDefault(); this.focus(); this.mouse(event, action); return; }
+    if (this.nativeButton !== undefined || (this.frame.mouse && !event.shiftKey && !opensLink(event))) {
+      event.preventDefault();
+      if (action === "press") { this.focus(); this.nativeButton = event.button; this.canvas.setPointerCapture(event.pointerId); }
+      this.mouse(event, action, this.nativeButton ?? event.button);
+      if (action === "release") { this.nativeButton = undefined; if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId); }
+      return;
+    }
     if (action === "press" && event.button === 0) {
       event.preventDefault(); this.focus(); if (opensLink(event)) return;
       this.selectionStart = this.point(event); this.selected = ""; this.quiet({ kind: "clearSelection" }); this.canvas.setPointerCapture(event.pointerId);
@@ -265,10 +271,11 @@ export class TerminalSurface {
   }
   private mouse(event: MouseEvent, action: string, button = event.button): void {
     const rect = this.canvas.getBoundingClientRect();
-    this.sendInput({ kind: "mouse", x: (event.clientX - rect.left) * this.canvas.clientWidth / rect.width, y: (event.clientY - rect.top) * this.canvas.clientHeight / rect.height, action, button, mods: modifiers(event), buttons: Boolean(event.buttons), cellWidth: Math.max(1, Math.round(this.cellWidth)), cellHeight: this.cellHeight });
+    this.sendInput({ kind: "mouse", x: (event.clientX - rect.left) * this.canvas.clientWidth / rect.width, y: (event.clientY - rect.top) * this.canvas.clientHeight / rect.height, action, button, mods: ghosttyModifiers(event), buttons: Boolean(event.buttons), cellWidth: Math.max(1, Math.round(this.cellWidth)), cellHeight: this.cellHeight });
   }
   private scrollTo(row: number): void { this.quiet({ kind: "scroll", row: Math.max(0, Math.min(Math.max(0, (this.frame?.total ?? 0) - this.rows), Math.round(row))) }); }
   private async selectWord(event: MouseEvent): Promise<void> {
+    if (this.frame?.mouse && !event.shiftKey) return;
     const point = this.point(event); const row = this.frame?.lines[point[1] - (this.frame?.offset ?? 0)]; if (!row) return;
     const text = rowText(row); const columns = rowColumns(row);
     const word = [...text.matchAll(/[^\s]+/g)].find(match => columns[match.index!] <= point[0] && columns[match.index! + match[0].length - 1] >= point[0]);

@@ -184,6 +184,16 @@ try:
     screenshot('native-ghostty-search.png')
     click('[data-search="close"]')
     check('native scrollback search finds real Unicode PTY output and highlights its cells')
+    textarea = wait(lambda: element('.ghostty-input'), 'terminal after search')
+    request('POST', f'/session/{session}/element/{textarea}/value', {'text': 'sleep 30\n'})
+    request('POST', f'/session/{session}/actions', {'actions':[{'type':'key','id':'interrupt-keys','actions':[
+        {'type':'keyDown','value':'\ue009'}, {'type':'keyDown','value':'c'},
+        {'type':'keyUp','value':'c'}, {'type':'keyUp','value':'\ue009'}]}]})
+    interrupted = 'CI_NATIVE_INTERRUPT'
+    interrupt_escaped = ''.join('\\%03o' % byte for byte in interrupted.encode())
+    request('POST', f'/session/{session}/element/{textarea}/value', {'text': f"printf '{interrupt_escaped}\\n'\n"})
+    wait(lambda: execute("return Array.from(document.querySelectorAll('.ghostty-accessibility')).some(el=>el.textContent.includes(arguments[0]));", interrupted), 'native Ctrl+C interrupts the running process', timeout=12)
+    check('Control reaches the native keyboard encoder and interrupts a real shell process')
     for width, height in [(1000, 700), (1280, 850), (1080, 720), (1400, 900)]:
         request("POST", f"/session/{session}/window/rect", {"width": width, "height": height})
     check("window resizing keeps the terminal alive")

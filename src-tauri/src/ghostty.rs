@@ -318,14 +318,20 @@ impl Engine {
             }
         }
         self.terminal.vt_write(&bytes[begin..]);
-        effects.extend(self.terminal.events().filter_map(|event| match event {
-            Event::PtyWrite(bytes) if live => Some(json!({"kind":"reply","bytes":bytes})),
-            Event::TitleChanged(title) => Some(json!({"kind":"title","title":title})),
-            Event::PwdChanged(pwd) => Some(json!({"kind":"directory","uri":pwd})),
-            Event::Bell => Some(json!({"kind":"bell"})),
-            _ => None,
-        }));
+        effects.extend(self.drain_events(live));
         effects
+    }
+    fn drain_events(&mut self, live: bool) -> Vec<Value> {
+        self.terminal
+            .events()
+            .filter_map(|event| match event {
+                Event::PtyWrite(bytes) if live => Some(json!({"kind":"reply","bytes":bytes})),
+                Event::TitleChanged(title) => Some(json!({"kind":"title","title":title})),
+                Event::PwdChanged(pwd) => Some(json!({"kind":"directory","uri":pwd})),
+                Event::Bell => Some(json!({"kind":"bell"})),
+                _ => None,
+            })
+            .collect()
     }
     fn command_mark(&mut self, data: &str, effects: &mut Vec<Value>) {
         let mut fields = data.split(';');
@@ -741,7 +747,8 @@ impl Engine {
         let mut cloned = ghostty_vt::snapshot::Decoder::from_slice(&bytes)
             .decode()
             .map_err(error)?;
-        cloned.vt_write(b"\x1b[?1049l\x1b[?1047l\x1b[?47l");
+        cloned.set_clipboard_write_policy(ClipboardWritePolicy::Deny);
+        cloned.vt_write(b"\x18\x1b[?1049l\x1b[?1047l\x1b[?47l");
         Self::format_screen(&cloned, Format::Vt, lines)
     }
     fn format_screen(terminal: &Terminal, format: Format, lines: usize) -> Result<String> {
@@ -1036,6 +1043,7 @@ pub(crate) fn ghostty_action(
                     .terminal
                     .resize(cols, rows, cell_width, cell_height)
                     .map_err(error)?;
+                effects = engine.drain_events(true);
             }
             Action::Write { text } => {
                 if text.len() > 4 * 1024 * 1024 {
@@ -1045,7 +1053,7 @@ pub(crate) fn ghostty_action(
             }
             Action::Scroll { row } => engine.terminal.scroll_viewport(ScrollViewport::Row(row)),
             Action::Clear => {
-                effects = engine.write(b"\x1b[3J\x1b[H\x1b[2J", false);
+                effects = engine.write(b"\x18\x1b[3J\x1b[H\x1b[2J", false);
             }
             Action::Text { lines } => {
                 return engine
@@ -1604,6 +1612,14 @@ mod tests {
             .any(|cell| cell.text == "r" && cell.fg == "#010203"));
         let before = source.terminal.active_screen().unwrap();
         assert_eq!(before, ghostty_vt::screen::Screen::Alternate);
+        source.write(b"\x1b]2;unfinished", true);
+        let pending = source.snapshot(3).unwrap();
+        assert!(pending.contains("recent history"));
+        assert!(!pending.contains("EDITOR"));
+        assert!(source
+            .write(b" title\x07", true)
+            .iter()
+            .any(|event| event["kind"] == "title" && event["title"] == "unfinished title"));
         let mut partial = engine(80);
         partial.write(b"visible\x1b[", true);
         assert!(partial.snapshot(100).unwrap().contains("visible"));
@@ -1648,6 +1664,21 @@ mod tests {
         assert_eq!(encode(&mut engine), b"\x1b[A");
         engine.write(b"\x1b[?1h", true);
         assert_eq!(encode(&mut engine), b"\x1bOA");
+        assert_eq!(ghostty_vt::key::Mods::CTRL.bits(), 2);
+        assert_eq!(ghostty_vt::key::Mods::ALT.bits(), 4);
+        let mut event = KeyEvent::new().unwrap();
+        event
+            .set_key(Key::C)
+            .set_unshifted_codepoint('c')
+            .set_utf8(Some("c"))
+            .set_mods(ghostty_vt::key::Mods::CTRL);
+        let mut out = Vec::new();
+        engine
+            .keys
+            .set_options_from_terminal(&engine.terminal)
+            .encode_to_vec(&event, &mut out)
+            .unwrap();
+        assert_eq!(out, b"\x03");
     }
     #[test]
     fn native_images_and_sixel_compatibility_use_ghostty_placements() {
