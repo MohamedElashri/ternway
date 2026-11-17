@@ -116,6 +116,7 @@ export async function handleClick(event: MouseEvent): Promise<void> {
     return;
   }
   if (target.dataset.workspaceTab) {
+    if (target.dataset.workspaceTab !== "local" && target.dataset.workspaceTab === state.activeWorkspaceTabId) return;
     await selectWorkspaceTab(target.dataset.workspaceTab);
     return;
   }

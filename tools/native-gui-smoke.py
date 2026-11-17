@@ -370,6 +370,15 @@ try:
         assert all(abs(height-34)<1 for height in geometry['terms']), geometry
         assert geometry['nested']==0, geometry
     check_tab_alignment()
+    workspace_point=execute("const rect=document.querySelector('.workspace-tab.active:not(.workspace-tab-local)').getBoundingClientRect();return {x:rect.left+60,y:rect.top+rect.height/2};")
+    request('POST', f'/session/{session}/actions', {'actions':[{'type':'pointer','id':'workspace-rename','parameters':{'pointerType':'mouse'},'actions':[
+      {'type':'pointerMove','duration':0,'origin':'viewport','x':int(workspace_point['x']),'y':int(workspace_point['y'])},
+      {'type':'pointerDown','button':0},{'type':'pointerUp','button':0},{'type':'pause','duration':100},
+      {'type':'pointerDown','button':0},{'type':'pointerUp','button':0}]}]})
+    wait(lambda: shown('[data-form="workspace-tab-rename"]'), 'double-click renames selected workspace without rebuilding its click target')
+    type_into('[data-form="workspace-tab-rename"] [name="label"]', 'QA remote')
+    click('[data-form="workspace-tab-rename"] button[type="submit"]')
+    wait(lambda: execute("return document.querySelector('.workspace-tab.active .workspace-tab-copy')?.textContent==='QA remote';"), 'workspace label saved')
     def remote_input(text):
         target = execute("return document.querySelector('.terminal-host:not([hidden]) .xterm-helper-textarea');")
         request('POST', f'/session/{session}/element/{target["element-6066-11e4-a52e-4f735466cecf"]}/value', {'text':text})
