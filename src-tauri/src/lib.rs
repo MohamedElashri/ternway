@@ -37,6 +37,7 @@ mod terminal;
 mod tier3;
 mod tunnels;
 mod update_support;
+mod window_geometry;
 
 use log_stream::LogSessions;
 use models::*;
@@ -46,7 +47,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalRect, PhysicalSize, Runtime, State,
+    AppHandle, Emitter, Manager, Runtime, State,
     WebviewWindow,
 };
 use terminal::TerminalSessions;
@@ -1732,46 +1733,6 @@ fn read_ssh_config(path: String) -> Result<Vec<SshConfigEntry>, String> {
     ssh_config::read(&path)
 }
 
-#[derive(Clone, Copy)]
-struct WindowGeometry {
-    position: PhysicalPosition<i32>,
-    size: PhysicalSize<u32>,
-}
-
-fn clamp_position(value: i64) -> i32 {
-    value.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
-}
-
-fn constrained_window_geometry(
-    geometry: WindowGeometry,
-    work_area: PhysicalRect<i32, u32>,
-    center: bool,
-) -> WindowGeometry {
-    let width = geometry.size.width.min(work_area.size.width.max(1));
-    let height = geometry.size.height.min(work_area.size.height.max(1));
-    let work_left = i64::from(work_area.position.x);
-    let work_top = i64::from(work_area.position.y);
-    let work_right = work_left + i64::from(work_area.size.width);
-    let work_bottom = work_top + i64::from(work_area.size.height);
-    let max_left = work_right - i64::from(width);
-    let max_top = work_bottom - i64::from(height);
-    let x = if center {
-        work_left + (i64::from(work_area.size.width) - i64::from(width)) / 2
-    } else {
-        i64::from(geometry.position.x).clamp(work_left, max_left)
-    };
-    let y = if center {
-        work_top + (i64::from(work_area.size.height) - i64::from(height)) / 2
-    } else {
-        i64::from(geometry.position.y).clamp(work_top, max_top)
-    };
-
-    WindowGeometry {
-        position: PhysicalPosition::new(clamp_position(x), clamp_position(y)),
-        size: PhysicalSize::new(width, height),
-    }
-}
-
 fn monitor_for_window<R: Runtime>(window: &WebviewWindow<R>) -> Option<tauri::Monitor> {
     window
         .current_monitor()
@@ -1790,59 +1751,21 @@ fn fit_initial_window_to_work_area<R: Runtime>(window: &WebviewWindow<R>) {
     let Some(monitor) = monitor_for_window(window) else {
         return;
     };
-    let work_area = *monitor.work_area();
-    let Ok(inner_size) = window.inner_size() else {
-        return;
-    };
-    let Ok(outer_size) = window.outer_size() else {
-        return;
-    };
-    let horizontal_chrome = outer_size.width.saturating_sub(inner_size.width);
-    let vertical_chrome = outer_size.height.saturating_sub(inner_size.height);
-    let position = window
-        .outer_position()
-        .unwrap_or_else(|_| PhysicalPosition::new(work_area.position.x, work_area.position.y));
-    let constrained = constrained_window_geometry(
-        WindowGeometry {
-            position,
-            size: outer_size,
+    // Hidden GTK windows may not have their configured size yet. Compute from the
+    // logical startup dimensions rather than feeding unrealized geometry back in.
+    let Some(geometry) = window_geometry::initial_geometry(
+        *monitor.work_area(),
+        tauri::PhysicalRect {
+            position: *monitor.position(),
+            size: *monitor.size(),
         },
-        work_area,
-        true,
-    );
-    let target_inner_size = PhysicalSize::new(
-        constrained
-            .size
-            .width
-            .saturating_sub(horizontal_chrome)
-            .max(1),
-        constrained
-            .size
-            .height
-            .saturating_sub(vertical_chrome)
-            .max(1),
-    );
-    if target_inner_size != inner_size {
-        let _ = window.set_size(target_inner_size);
-    }
-
-    let Ok(final_outer_size) = window.outer_size() else {
+        monitor.scale_factor(),
+    ) else {
         return;
     };
-    let Ok(final_position) = window.outer_position() else {
-        return;
-    };
-    let final_geometry = constrained_window_geometry(
-        WindowGeometry {
-            position: final_position,
-            size: final_outer_size,
-        },
-        work_area,
-        true,
-    );
-    if final_geometry.position != final_position {
-        let _ = window.set_position(final_geometry.position);
-    }
+    let _ = window.set_min_size(Some(geometry.minimum));
+    let _ = window.set_size(geometry.size);
+    let _ = window.set_position(geometry.position);
 }
 
 pub fn run() {
