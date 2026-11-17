@@ -19,9 +19,11 @@ def run(h):
 
     def program(code, ready):
         encoded = base64.b64encode(code.encode()).decode()
-        element = h['element']('.terminal-host:not([hidden]) .ghostty-input')
-        command = 'python3 -c ' + shlex.quote(f"import base64;exec(base64.b64decode('{encoded}'))") + '\n'
-        h['request']('POST', f"/session/{h['session']}/element/{element}/value", {'text': command})
+        # Paste only the single-line fixture command, then send a real Enter.
+        # Per-character WebDriver typing becomes very slow after the output flood.
+        command = 'python3 -c ' + shlex.quote(f"import base64;exec(base64.b64decode('{encoded}'))")
+        h['execute']("const el=document.querySelector('.terminal-host:not([hidden]) .ghostty-input');const data=new DataTransfer();data.setData('text/plain',arguments[0]);el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));", command)
+        h['request']('POST', f"/session/{h['session']}/actions", {'actions': [{'type': 'key', 'id': 'settings-program-enter', 'actions': [{'type': 'keyDown', 'value': '\ue007'}, {'type': 'keyUp', 'value': '\ue007'}]}]})
         h['wait'](lambda: output_has(ready), ready)
 
     def settings(extra):
