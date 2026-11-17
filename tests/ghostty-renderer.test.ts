@@ -73,3 +73,15 @@ test("deep-background images show through default cells but explicit matching ba
   drawGhostty(canvas,frame,'monospace',16,9,20,'#00f',new Map(),new Map());
   assert.deepEqual(fills, [[0,0,18,20],[9,0,9,20]]);
 });
+
+test("configured underline position shifts and clips decoration within its cell", () => {
+  const fills: unknown[][] = [];
+  const context = new Proxy({}, { set: () => true, get: (_, key) => (...args: unknown[]) => { if (key === "fillRect") fills.push(args); } });
+  const canvas = { width: 0, height: 0, style: {}, getContext: () => context } as unknown as HTMLCanvasElement;
+  const frame = { cols: 1, rows: 1, background: "#000", rowIds: ["r"], images: [], searchSpans: [], lines: [[{ x: 0, width: 1, text: "x", fg: "#fff", bg: "#000", flags: 32, link: "" }]] } as unknown as GhosttyFrame;
+  globalThis.window = { devicePixelRatio: 1 } as Window & typeof globalThis;
+  drawGhostty(canvas, frame, "monospace", 16, 9, 20, "#00f", new Map(), new Map(), undefined, -4);
+  assert.deepEqual(fills.at(-1), [0, 14, 9, 1]);
+  drawGhostty(canvas, frame, "monospace", 16, 9, 20, "#00f", new Map(), new Map(), undefined, 100);
+  assert.deepEqual(fills.at(-1), [0, 19, 9, 1]);
+});

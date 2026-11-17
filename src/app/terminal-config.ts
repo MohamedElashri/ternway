@@ -7,6 +7,8 @@ import { platform, quickMode, root, state, type ResolvedProfile } from "./state"
 import { applyTerminalAppearance } from "./terminal";
 import type { TerminalAppearance } from "./terminal-surface";
 import { setInterfaceScale, showToast } from "./toasts";
+import { applyWindowConfig } from "./window-config";
+import { configureAutomaticUpdates } from "./updater";
 
 interface LoadedConfig {
   path: string;
@@ -41,6 +43,9 @@ export function terminalAppearance(profile?: string): TerminalAppearance {
     cursorBlink: config.cursorBlink ?? true,
     macOptionIsMeta: config.macosOptionAsAlt,
     scrollback: config.scrollbackLimit,
+    adjustUnderlinePosition: config.adjustUnderlinePosition,
+    clickRepeatInterval: config.clickRepeatInterval,
+    resizeOverlay: config.resizeOverlay,
   };
 }
 
@@ -81,6 +86,7 @@ export async function loadTerminalConfig(announce = false): Promise<void> {
     if (announce) showToast(`Could not read the config: ${errorText(error)}`, "info");
     return;
   }
+  if (version !== configLoadVersion) return;
   const { config, ignored, errors } = parseConfig(loaded.entries);
   if (config.appTheme) {
     const selected = themePreset(config.appTheme);
@@ -93,6 +99,7 @@ export async function loadTerminalConfig(announce = false): Promise<void> {
   }
   const preset = themePreset(state.themeId);
   if (config.interfaceScale !== null && config.interfaceScale !== state.interfaceScale) await setInterfaceScale(config.interfaceScale, false, false);
+  if (version !== configLoadVersion) return;
   const base = await resolveTheme(config, errors, preset);
   const profiles = new Map<string, ResolvedProfile>();
   for (const profile of loaded.profiles) {
@@ -116,6 +123,12 @@ export async function loadTerminalConfig(announce = false): Promise<void> {
   }
   if (version !== configLoadVersion) return;
   applyTerminalAppearance();
+  if (!quickMode) {
+    const appearance = terminalAppearance();
+    await applyWindowConfig(config, appearance.fontSize, appearance.fontFamily, state.darkMode).catch(error => state.terminalConfig.errors.push(errorText(error)));
+    if (version !== configLoadVersion) return;
+    configureAutomaticUpdates(config);
+  }
   if (announce) {
     const problems = state.terminalConfig.errors.length;
     showToast(problems ? `Config reloaded with ${problems} problem${problems === 1 ? "" : "s"}; see Settings.` : "Config reloaded.", "info");

@@ -339,7 +339,7 @@ fn watch(
                 );
                 // Any file in profiles/ counts, so new profiles are picked up.
                 let relevant = event.paths.iter().any(|path| {
-                    watched.contains(path) || path.parent() == Some(profiles.as_path())
+                    watched.contains(path) || path == &profiles || path.parent() == Some(profiles.as_path())
                 });
                 if changed && relevant {
                     let _ = sender.send(());

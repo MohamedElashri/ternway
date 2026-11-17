@@ -1,6 +1,7 @@
+import { enhanceSelects } from "./select-controls";
 import { invoke } from "@tauri-apps/api/core";
 import { type TerminalConfig } from "./config";
-import { CONFIG_SETTINGS, renderConfigFields, settingValue, updatesFromFields } from "./config-settings";
+import { CONFIG_SETTINGS, MAIN_ONLY_SETTINGS, renderConfigFields, settingValue, updatesFromFields } from "./config-settings";
 import { escapeHtml } from "./format";
 import { state, root } from "./state";
 import { loadTerminalConfig } from "./terminal-config";
@@ -14,7 +15,10 @@ let selectedProfile = "";
 let draft: EditorDraft | null = null;
 function editor(): EditorDraft {
   if (selectedProfile && !state.terminalConfig.profiles.has(selectedProfile)) selectedProfile = "";
-  if (!draft || draft.profile !== selectedProfile) {
+  const sourceNow = selectedProfile ? state.terminalConfig.sources.get(selectedProfile) : state.terminalConfig;
+  const configNow = (selectedProfile ? state.terminalConfig.profiles.get(selectedProfile) : state.terminalConfig)!.config;
+  const unchanged = (baseline: TerminalConfig): boolean => CONFIG_SETTINGS.every(field => settingValue(field, baseline) === settingValue(field, configNow));
+  if (!draft || draft.profile !== selectedProfile || (!draft.saving && !dirty(draft) && (draft.revision !== sourceNow?.revision || !unchanged(draft.baseline)))) {
     const source = selectedProfile ? state.terminalConfig.sources.get(selectedProfile) : state.terminalConfig;
     const config = structuredClone((selectedProfile ? state.terminalConfig.profiles.get(selectedProfile) : state.terminalConfig)!.config);
     const includes = (source?.includes ?? []).join("\n");
@@ -26,12 +30,12 @@ function dirty(current: EditorDraft): boolean { return current.resets.size > 0 |
 export function renderConfigEditor(): string {
   const current = editor();
   const sources = state.terminalConfig.sources;
-  return `<form data-form="config-settings" class="config-editor form-stack"><div class="config-profile-toolbar"><label class="field"><span>Configuration</span><select data-field="config-profile" ${current.saving ? "disabled" : ""}><option value="">Main configuration</option>${[...sources.keys()].map(name => `<option value="${escapeHtml(name)}" ${name === selectedProfile ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></label><button type="button" class="button button-quiet" data-action="config-profile-create" ${current.saving ? "disabled" : ""}>New profile</button>${selectedProfile ? `<button type="button" class="button button-danger" data-action="config-profile-delete" ${current.saving ? "disabled" : ""}>Delete profile</button>` : ""}</div><p class="field-hint">${selectedProfile ? "This profile inherits main settings. Save a changed field to override it." : "GUI edits save to your Ternway config. Included Ghostty files stay unchanged."}</p><fieldset ${current.saving ? "disabled" : ""}>${renderConfigFields(current.baseline, current.values)}<details class="config-setting-group"><summary>Included config files</summary><label class="field"><span>Config files, in order</span><textarea name="config-includes" data-field="config-includes" rows="3" spellcheck="false">${escapeHtml(current.includes)}</textarea><small>One path per line. Prefix ? for an optional file; relative paths resolve from this config. Includes apply before the settings saved here.</small><small class="config-key">config-file</small></label></details></fieldset><p data-config-notice role="status" aria-live="polite">${current.error ? escapeHtml(current.error) : current.saving ? "Saving…" : dirty(current) ? "Unsaved changes" : "Changes apply when saved. Shell and initial window size settings apply to new sessions or the next launch."}</p><div class="config-actions"><button class="button button-quiet" type="button" data-action="config-discard" ${current.saving ? "disabled" : ""}>Reload / discard changes</button><button class="button button-primary" type="submit" ${current.saving || !current.revision ? "disabled" : ""}>Save settings</button></div></form>`;
+  return `<form data-form="config-settings" class="config-editor form-stack"><div class="config-profile-toolbar"><label class="field"><span>Configuration</span><select data-field="config-profile" ${current.saving ? "disabled" : ""}><option value="">Main configuration</option>${[...sources.keys()].map(name => `<option value="${escapeHtml(name)}" ${name === selectedProfile ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></label><button type="button" class="button button-quiet" data-action="config-profile-create" ${current.saving ? "disabled" : ""}>New profile</button>${selectedProfile ? `<button type="button" class="button button-danger" data-action="config-profile-delete" ${current.saving ? "disabled" : ""}>Delete profile</button>` : ""}</div><p class="field-hint">${selectedProfile ? "This profile inherits main settings. Save a changed field to override it." : "GUI edits save to your Ternway config. Included Ghostty files stay unchanged."}</p><fieldset ${current.saving ? "disabled" : ""}>${renderConfigFields(current.baseline, current.values, Boolean(current.profile))}<details class="config-setting-group"><summary>Included config files</summary><label class="field"><span>Config files, in order</span><textarea name="config-includes" data-field="config-includes" rows="3" spellcheck="false">${escapeHtml(current.includes)}</textarea><small>One path per line. Prefix ? for an optional file; relative paths resolve from this config. Includes apply before the settings saved here.</small><small class="config-key">config-file</small></label></details></fieldset><p data-config-notice role="status" aria-live="polite">${current.error ? escapeHtml(current.error) : current.revision !== (selectedProfile ? sources.get(selectedProfile)?.revision : state.terminalConfig.revision) ? "The file changed outside this form. Reload before saving; your edits are kept here." : current.saving ? "Saving…" : dirty(current) ? "Unsaved changes" : "Changes apply when saved. Shell and initial window size settings apply to new sessions or the next launch."}</p><div class="config-actions"><button class="button button-quiet" type="button" data-action="config-discard" ${current.saving ? "disabled" : ""}>Reload / discard changes</button><button class="button button-primary" type="submit" ${current.saving || !current.revision ? "disabled" : ""}>Save settings</button></div></form>`;
 }
 export function updateConfigField(input: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement): boolean {
   if (!input.dataset.configKey && input.dataset.field !== "config-includes") return false;
   const current = editor();
-  if (current.saving) return true;
+  if (current.saving || (current.profile && input.dataset.configKey && MAIN_ONLY_SETTINGS.has(input.dataset.configKey))) return true;
   if (input.dataset.configKey) { current.resets.delete(input.dataset.configKey); current.values.set(input.dataset.configKey, input.value); }
   else current.includes = input.value;
   current.error = "";
@@ -60,7 +64,7 @@ export async function saveConfigForm(form: HTMLFormElement): Promise<void> {
   for (const input of form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("[data-config-key], [data-field='config-includes']")) { if (!input.dataset.configKey || !current.resets.has(input.dataset.configKey)) updateConfigField(input); }
   current.saving = true;
   try {
-    const updates = updatesFromFields([...current.values].filter(([key]) => !current.resets.has(key)), current.baseline);
+    const updates = updatesFromFields([...current.values].filter(([key]) => !current.resets.has(key) && !(current.profile && MAIN_ONLY_SETTINGS.has(key))), current.baseline);
     for (const key of current.resets) updates.push({ key, values: [] });
     if (current.includes !== current.originalIncludes) updates.push({ key: "config-file", values: current.includes.split("\n").map(line => line.trim()).filter(Boolean) });
     if (!updates.length) { current.saving = false; return; }
@@ -75,7 +79,8 @@ export async function saveConfigForm(form: HTMLFormElement): Promise<void> {
 export async function createConfigProfile(): Promise<void> {
   if (dirty(editor()) && !await confirm("Discard unsaved settings before creating a profile?", { title: "Unsaved settings" })) return;
   const name = await requestTextInput({ title: "New terminal profile", label: "Profile name", defaultValue: "", placeholder: "Work" });
-  if (!name) return;
+  state.modal = "security";
+  if (!name) { render(); return; }
   try {
     await invoke("create_config_profile", { name });
     await loadTerminalConfig();
@@ -99,9 +104,37 @@ export async function deleteConfigProfile(): Promise<void> {
 export function inheritConfigField(key: string): void {
   if (!CONFIG_SETTINGS.some(field => field.key === key)) return;
   const current = editor();
-  if (current.saving) return;
+  if (current.saving || (current.profile && MAIN_ONLY_SETTINGS.has(key))) return;
   current.resets.add(key);
   current.error = "";
   const notice = root.querySelector<HTMLElement>("[data-config-notice]");
   if (notice) notice.textContent = `${key}: override will be removed when saved.`;
+}
+
+/** Hot reload clean forms; a dirty form keeps every keystroke and reports conflicts. */
+export function refreshConfigEditor(): void {
+  const form = root.querySelector<HTMLFormElement>('[data-form="config-settings"]');
+  if (!form) return;
+  const current = editor();
+  if (current.saving) return;
+  if (dirty(current)) {
+    const source = current.profile ? state.terminalConfig.sources.get(current.profile) : state.terminalConfig;
+    const notice = form.querySelector<HTMLElement>("[data-config-notice]");
+    if (notice && source?.revision !== current.revision) notice.textContent = "The file changed outside this form. Reload before saving; your edits are kept here.";
+    return;
+  }
+  const focused = form.contains(document.activeElement) ? document.activeElement as HTMLInputElement : null;
+  const key = focused?.dataset.configKey;
+  const start = focused?.selectionStart;
+  const end = focused?.selectionEnd;
+  const opened = [...form.querySelectorAll<HTMLDetailsElement>("details")].map(details => details.open);
+  form.outerHTML = renderConfigEditor();
+  const next = root.querySelector<HTMLFormElement>('[data-form="config-settings"]')!;
+  next.querySelectorAll<HTMLDetailsElement>("details").forEach((details, i) => details.open = opened[i] ?? details.open);
+  enhanceSelects(root, next);
+  if (key) {
+    const target = [...next.querySelectorAll<HTMLInputElement>("[data-config-key]")].find(control => control.dataset.configKey === key);
+    target?.focus({ preventScroll: true });
+    if (target && start !== null && start !== undefined && end !== null && end !== undefined) { try { target.setSelectionRange(start, end); } catch { /* Number/select controls have no caret. */ } }
+  }
 }

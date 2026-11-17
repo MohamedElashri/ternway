@@ -40,6 +40,7 @@ mod tier3;
 mod tunnels;
 mod update_support;
 mod window_geometry;
+mod terminal_window;
 mod ghostty;
 mod desktop_clipboard;
 
@@ -1630,16 +1631,22 @@ fn load_config(
 }
 
 #[tauri::command(async)]
-fn save_config_settings(profile: Option<String>, expected_revision: String, updates: Vec<config::ConfigUpdate>) -> Result<(), AppError> {
-    Ok(config_edit::save_at(&config::config_path()?, profile.as_deref(), &expected_revision, &updates)?)
+fn save_config_settings(app: AppHandle, profile: Option<String>, expected_revision: String, updates: Vec<config::ConfigUpdate>) -> Result<(), AppError> {
+    config_edit::save_at(&config::config_path()?, profile.as_deref(), &expected_revision, &updates)?;
+    let _ = app.emit("config-changed", ());
+    Ok(())
 }
 #[tauri::command(async)]
-fn create_config_profile(name: String) -> Result<(), AppError> {
-    Ok(config_edit::create_at(&config::config_path()?, &name)?)
+fn create_config_profile(app: AppHandle, name: String) -> Result<(), AppError> {
+    config_edit::create_at(&config::config_path()?, &name)?;
+    let _ = app.emit("config-changed", ());
+    Ok(())
 }
 #[tauri::command(async)]
-fn delete_config_profile(name: String, expected_revision: String) -> Result<(), AppError> {
-    Ok(config_edit::delete_at(&config::config_path()?, &name, &expected_revision)?)
+fn delete_config_profile(app: AppHandle, name: String, expected_revision: String) -> Result<(), AppError> {
+    config_edit::delete_at(&config::config_path()?, &name, &expected_revision)?;
+    let _ = app.emit("config-changed", ());
+    Ok(())
 }
 
 #[tauri::command(async)]
@@ -2010,6 +2017,7 @@ pub fn run() {
             save_config_settings,
             create_config_profile,
             delete_config_profile,
+            terminal_window::configure_terminal_window,
             save_session,
             load_session,
             list_workspaces,

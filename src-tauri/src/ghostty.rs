@@ -57,6 +57,24 @@ fn rgb(value: &str) -> Option<RgbColor> {
     })
 }
 
+/// Observe bounded OSC 52 requests; the frontend applies the per-profile permission.
+/// The native engine always denies clipboard access, including restored scrollback.
+fn clipboard_request(osc: &str) -> Option<Value> {
+    let (selection, payload) = osc.strip_prefix("52;")?.split_once(';')?;
+    if !matches!(selection, "" | "c") {
+        return None;
+    }
+    if payload == "?" {
+        Some(json!({"kind":"clipboard","read":true,"selection":selection}))
+    } else {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(payload)
+            .ok()?;
+        let text = String::from_utf8(bytes).ok()?;
+        Some(json!({"kind":"clipboard","read":false,"selection":selection,"text":text}))
+    }
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Appearance {
@@ -153,7 +171,7 @@ impl Engine {
             max_scrollback: Self::history_bytes(appearance.scrollback),
         })
         .map_err(error)?;
-        // Remote OSC 52 must never overwrite the user's clipboard.
+        // Clipboard requests are permission-checked by the frontend, never applied by the VT.
         terminal.set_clipboard_write_policy(ClipboardWritePolicy::Deny);
         terminal.set_continuation_max_bytes(65536).map_err(error)?;
         terminal
@@ -326,6 +344,11 @@ impl Engine {
                         if let Ok(data) = std::str::from_utf8(data) {
                             if let Some(mark) = data.strip_prefix("133;") {
                                 self.command_mark(mark, &mut effects);
+                            }
+                            if live {
+                                if let Some(request) = clipboard_request(data) {
+                                    effects.push(request);
+                                }
                             }
                         }
                         if live {
@@ -1954,6 +1977,36 @@ mod tests {
             true,
         );
         assert_eq!(engine.last_output().unwrap().as_deref(), Some("result 終"));
+    }
+    #[test]
+    fn osc52_requests_are_live_only_bounded_and_validate_clipboard_selection() {
+        assert_eq!(
+            clipboard_request("52;c;aGVsbG8="),
+            Some(json!({"kind":"clipboard","read":false,"selection":"c","text":"hello"}))
+        );
+        assert_eq!(
+            clipboard_request("52;c;?"),
+            Some(json!({"kind":"clipboard","read":true,"selection":"c"}))
+        );
+        assert!(clipboard_request("52;p;?").is_none());
+        assert!(clipboard_request("52;c;not base64").is_none());
+        assert!(clipboard_request("52;c;/w==").is_none());
+        let mut engine = engine(80);
+        assert!(!engine
+            .write(b"\x1b]52;c;aGVsbG8=\x07", false)
+            .iter()
+            .any(|e| e["kind"] == "clipboard"));
+        assert!(engine
+            .write(b"\x1b]52;c;aGVsbG8=\x07", true)
+            .iter()
+            .any(|e| e["kind"] == "clipboard" && e["text"] == "hello"));
+        assert!(!engine
+            .write(
+                format!("\x1b]52;c;{}\x07", "a".repeat(70000)).as_bytes(),
+                true
+            )
+            .iter()
+            .any(|e| e["kind"] == "clipboard"));
     }
     #[test]
     fn restore_never_emits_input_and_osc52_is_denied() {

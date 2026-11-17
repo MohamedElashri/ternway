@@ -65,3 +65,14 @@ test("workspace preferences and repeated resets use the same config parser", () 
   assert.deepEqual(parsed.errors, []);
   assert.equal(parseConfig(entries([{ key: "app-theme", values: ["unknown"] }, { key: "interface-scale", values: ["0"] }])).errors.length, 2);
 });
+
+test("profile controls disable global preferences and preserve custom config values", () => {
+  const config = structuredClone(DEFAULT_CONFIG);
+  config.shellIntegration = "custom-shell";
+  const dom = new JSDOM(renderConfigFields(config, undefined, true));
+  const document = dom.window.document;
+  assert.equal(document.querySelector<HTMLSelectElement>('[name="config:shell-integration"]')?.value, "custom-shell");
+  assert.equal(document.querySelector<HTMLSelectElement>('[name="config:app-theme"]')?.disabled, true);
+  assert.equal(document.querySelector<HTMLInputElement>('[name="config:font-size"]')?.disabled, false);
+  dom.window.close();
+});

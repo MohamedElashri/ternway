@@ -104,15 +104,19 @@ export function updatesFromFields(fields: Iterable<[string, string]>, baseline: 
   return updates;
 }
 
-export function renderConfigFields(config: TerminalConfig, values?: ReadonlyMap<string, string>): string {
+export const MAIN_ONLY_SETTINGS = new Set(["app-theme", "interface-scale", "fullscreen", "window-width", "window-height", "window-theme", "window-decoration", "window-save-state", "clipboard-history", "save-scrollback", "quick-terminal-position", "quick-terminal-size", "quick-terminal-autohide", "auto-update", "auto-update-channel"]);
+
+export function renderConfigFields(config: TerminalConfig, values?: ReadonlyMap<string, string>, profile = false): string {
   const groups = [...new Set(CONFIG_SETTINGS.map(field => field.group))];
   return groups.map(group => `<details class="config-setting-group" ${["Text", "Workspace"].includes(group) ? "open" : ""}><summary>${escapeHtml(group)}</summary><div class="config-setting-grid">${CONFIG_SETTINGS.filter(field => field.group === group).map(field => {
     const value = values?.get(field.key) ?? settingValue(field, config);
     const name = `config:${field.key}`;
-    const attrs = `name="${name}" data-config-key="${field.key}" spellcheck="false"`;
+    const global = profile && MAIN_ONLY_SETTINGS.has(field.key);
+    const attrs = `name="${name}" data-config-key="${field.key}" spellcheck="false" ${global ? "disabled" : ""}`;
+    const options = field.options && !field.options.includes(value) ? [value, ...field.options] : field.options;
     const control = field.kind === "lines" ? `<textarea ${attrs} rows="3">${escapeHtml(value)}</textarea>`
-      : field.options ? `<select ${attrs}>${field.options.map(option => `<option value="${escapeHtml(option)}" ${option === value ? "selected" : ""}>${escapeHtml(option || "Default / inherit")}</option>`).join("")}</select>`
+      : options ? `<select ${attrs}>${options.map(option => `<option value="${escapeHtml(option)}" ${option === value ? "selected" : ""}>${escapeHtml(option || "Default / inherit")}</option>`).join("")}</select>`
       : `<input ${attrs} type="${field.kind === "number" ? "number" : "text"}" value="${escapeHtml(value)}" ${field.kind === "number" ? `min="${field.min}" max="${field.max}" step="${field.step}"` : ""} ${field.kind === "color" ? 'placeholder="#rrggbb or empty for theme"' : ""}/>`;
-    return `<label class="field ${field.kind === "lines" ? "field-wide" : ""}"><span>${escapeHtml(field.label)}</span>${control}${field.help ? `<small>${escapeHtml(field.help)}</small>` : ""}<small class="config-key">${field.key}</small><button type="button" class="button button-quiet config-reset-field" data-action="config-inherit" data-config-reset="${field.key}">Use inherited / default value</button></label>`;
+    return `<label class="field ${field.kind === "lines" ? "field-wide" : ""}"><span>${escapeHtml(field.label)}</span>${control}${global ? `<small>Set in Main configuration; shared by all profiles.</small>` : field.help ? `<small>${escapeHtml(field.help)}</small>` : ""}<small class="config-key">${field.key}</small><button type="button" class="button button-quiet config-reset-field" data-action="config-inherit" data-config-reset="${field.key}" ${global ? "disabled" : ""}>Use inherited / default value</button></label>`;
   }).join("")}</div></details>`).join("");
 }

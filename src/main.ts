@@ -1,3 +1,4 @@
+import { refreshConfigEditor } from "./app/config-editor";
 import { installConnectionSidebar } from "./app/connection-sidebar";
 import { installTabNavigation } from "./app/tab-view";
 import { watchColorTheme } from "./app/appearance";
@@ -87,7 +88,7 @@ async function installEventListeners(): Promise<void> {
     viewer.status = "stopped";
     render();
   }));
-  state.terminalUnlisteners.push(await listen("config-changed", () => { void loadTerminalConfig(true); }));
+  state.terminalUnlisteners.push(await listen("config-changed", () => { void loadTerminalConfig(true).then(refreshConfigEditor); }));
   state.terminalUnlisteners.push(await listen<{ id: string; remotePath: string; status: string; message?: string }>("remote-edit", (event) => {
     const { id, remotePath, status, message } = event.payload;
     const name = remotePath.split("/").pop() || remotePath;

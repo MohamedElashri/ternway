@@ -84,11 +84,12 @@ export async function setInterfaceScale(scale: number, announce = true, persistC
   persist(scale);
   const next = scaleChanges.then(async () => {
     try {
-      if (persistConfig) await persistWorkspaceSetting("interface-scale", String(scale));
       await appWebview.setZoom(scale);
+      if (persistConfig) await persistWorkspaceSetting("interface-scale", String(scale));
       appliedScale = scale;
       if (announce && state.interfaceScale === scale) showToast(`Interface scale set to ${Math.round(scale * 100)}%.`, "info");
     } catch (error) {
+      await appWebview.setZoom(appliedScale).catch(() => undefined);
       if (state.interfaceScale === scale) { state.interfaceScale = appliedScale; persist(appliedScale); syncInterfaceScaleControls(); }
       if (announce) showToast(`Could not change interface scale: ${errorText(error)}`, "info");
     }
