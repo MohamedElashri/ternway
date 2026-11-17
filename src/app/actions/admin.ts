@@ -8,10 +8,11 @@ import { activeServer, state } from "../state";
 import { showToast } from "../toasts";
 import { loadActiveView, loadAdministrationTab, setCommandResults } from "../workspace";
 import { openComposeLogs } from "./containers";
+import { writeText } from "../clipboard";
 
 export async function copyText(value: string): Promise<void> {
   if (!value) return;
-  try { await navigator.clipboard.writeText(value); showToast("Copied to the clipboard."); } catch (error) { setError(error); }
+  try { await writeText(value); showToast("Copied to the clipboard."); } catch (error) { setError(error); }
 }
 
 export async function runComposeAction(path: string, action: string): Promise<void> {

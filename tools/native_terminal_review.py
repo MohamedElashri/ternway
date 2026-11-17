@@ -120,9 +120,13 @@ finally:
         {'type': 'pointerMove', 'x': rect['x']+50, 'y': rect['y']+20, 'duration': 80}, {'type': 'pointerUp', 'button': 0}]}]})
     h['wait'](lambda: output_has('REVIEW_MOUSE_OK'), 'SGR mouse press and release reach real PTY')
     h['check']('native SGR mouse press, drag and release reach the requesting terminal program')
-    h['invoke']('plugin:clipboard-manager|write_text',text='review-empty-clipboard')
+    clipboard_text='Native clipboard: é界\nsecond line'
+    h['invoke']('write_clipboard_text',text=clipboard_text)
+    assert h['invoke']('read_clipboard_text')==clipboard_text
+    h['check']('native display clipboard preserves Unicode and multiline text without an X11 fallback')
+    h['invoke']('write_clipboard_text',text='review-empty-clipboard')
     chord('\ue009','\ue008','a')
     chord('\ue009','\ue008','c')
-    h['wait'](lambda:'REVIEW_MOUSE_OK' in h['invoke']('plugin:clipboard-manager|read_text'), 'rapid select-all then copy retrieves current native selection')
+    h['wait'](lambda:'REVIEW_MOUSE_OK' in h['invoke']('read_clipboard_text'), 'rapid select-all then copy retrieves current native selection')
     h['check']('rapid select-all then copy reads the current native selection instead of a stale cache')
     h['screenshot']('terminal-review-input-and-rendering.png')

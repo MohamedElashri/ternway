@@ -5215,6 +5215,7 @@ dependencies = [
  "dirs 6.0.0",
  "ghostty-vt",
  "glob",
+ "gtk",
  "icy_sixel",
  "image",
  "libc",

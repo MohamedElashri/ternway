@@ -6,7 +6,7 @@ import { parseSavedLayout, type SavedPane, type SavedSession } from "./saved-lay
 export type { SavedPane, SavedSession } from "./saved-layout";
 import { freshSessionRequest } from "./connection-lifecycle";
 import { invoke } from "@tauri-apps/api/core";
-import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { readText, writeText } from "./clipboard";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { TerminalStarted, TerminalTab } from "../types";

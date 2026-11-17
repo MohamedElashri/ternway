@@ -40,6 +40,7 @@ mod tunnels;
 mod update_support;
 mod window_geometry;
 mod ghostty;
+mod desktop_clipboard;
 
 use log_stream::LogSessions;
 use models::*;
@@ -1884,6 +1885,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            desktop_clipboard::read_clipboard_text,
+            desktop_clipboard::write_clipboard_text,
             ghostty::ghostty_create,
             ghostty::ghostty_action,
             app_metadata,
