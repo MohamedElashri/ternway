@@ -742,3 +742,11 @@ h1 { margin-bottom: 0; font: 600 35px/1.05 var(--font-display); letter-spacing: 
 .shutdown-freeze strong { font: 600 20px/1.4 var(--font-ui); }
 .shutdown-freeze p { margin: 12px 0 20px; line-height: 1.6; }
 .shutdown-freeze .button { color: #1d2939; border-color: #98a2b3; }
+
+.folder-glyph .icon { width: 13px; height: 13px; }
+.connection-folder-contents { margin-left: 8px; border-left: 1px solid var(--line); padding-left: 5px; }
+.folder-manager-list { max-height: 260px; overflow: auto; }
+.folder-manager-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.folder-manager-row > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.folder-manager-row small { display: block; color: var(--muted); }
+.folder-manager-row > button { flex-shrink: 0; }

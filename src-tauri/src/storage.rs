@@ -26,12 +26,14 @@ impl Store {
         let mut connection = self.connection.lock().map_err(|e| e.to_string())?;
         let transaction = connection.transaction().map_err(|e| e.to_string())?;
         let group = group_name.trim();
+        let group = if group.is_empty() { String::new() } else { crate::connection_folders::normalize_path(group)? };
+        if !group.is_empty() { crate::connection_folders::ensure_folders(&transaction, &group)?; }
         for id in server_ids {
             let changed = transaction
                 .execute(
                     "UPDATE servers SET group_name = ?1, updated_at = ?2 WHERE id = ?3",
                     params![
-                        if group.is_empty() { None } else { Some(group) },
+                        if group.is_empty() { None } else { Some(group.as_str()) },
                         Utc::now().to_rfc3339(),
                         id
                     ],
@@ -120,7 +122,8 @@ impl Store {
         crate::identities::migrate(&mut connection, path)?;
         connection
             .execute_batch(
-                "CREATE TABLE IF NOT EXISTS import_origins (source_key TEXT PRIMARY KEY NOT NULL, server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE, snapshot_json TEXT NOT NULL);
+                "CREATE TABLE IF NOT EXISTS connection_folders (path TEXT PRIMARY KEY NOT NULL);
+                 CREATE TABLE IF NOT EXISTS import_origins (source_key TEXT PRIMARY KEY NOT NULL, server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE, snapshot_json TEXT NOT NULL);
                  CREATE TABLE IF NOT EXISTS restore_marker (token TEXT NOT NULL);
                  CREATE TABLE IF NOT EXISTS password_references (server_id TEXT PRIMARY KEY NOT NULL REFERENCES servers(id) ON DELETE CASCADE, reference_json TEXT NOT NULL);
                  CREATE TABLE IF NOT EXISTS openssh_connections (
@@ -442,6 +445,9 @@ impl Store {
         let tx = connection
             .unchecked_transaction()
             .map_err(|e| e.to_string())?;
+        let group = draft.group_name.as_deref().filter(|value| !value.trim().is_empty())
+            .map(crate::connection_folders::normalize_path).transpose()?;
+        if let Some(group) = &group { crate::connection_folders::ensure_folders(&tx, group)?; }
         tx.execute(
             "INSERT INTO servers
                     (id, name, host, username, port, auth_method, key_path, group_name,
@@ -467,10 +473,7 @@ impl Store {
                 port,
                 auth_method,
                 draft.key_path.as_deref(),
-                draft
-                    .group_name
-                    .as_deref()
-                    .filter(|value| !value.trim().is_empty()),
+                group,
                 tags_json,
                 draft.favorite,
                 created_at,

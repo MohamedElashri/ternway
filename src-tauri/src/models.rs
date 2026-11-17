@@ -134,6 +134,7 @@ pub struct SshConfigEntry {
 pub struct AppStateSnapshot {
     pub version: u32,
     pub servers: Vec<ServerProfile>,
+    pub connection_folders: Vec<String>,
     pub identities: Vec<crate::identities::Identity>,
     pub ssh_keys: Vec<SshKey>,
     pub ssh_config_entries: Vec<SshConfigEntry>,

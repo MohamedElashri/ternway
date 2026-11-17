@@ -133,8 +133,10 @@ impl Store {
         {
             return Err("Group or tags are too long".into());
         }
+        let group = group.map(|value| if value.trim().is_empty() { Ok(String::new()) } else { crate::connection_folders::normalize_path(&value) }).transpose()?;
         let mut db = self.connection.lock().map_err(|e| e.to_string())?;
         let tx = db.transaction().map_err(|e| e.to_string())?;
+        if let Some(group) = group.as_ref().filter(|value| !value.is_empty()) { crate::connection_folders::ensure_folders(&tx, group)?; }
         for id in ids {
             let exists: bool = tx
                 .query_row(
