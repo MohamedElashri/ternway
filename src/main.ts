@@ -34,6 +34,7 @@ import { refreshSnapshot, selectLocalWorkspace } from "./app/workspace";
 import { saveSession, sessionSavingEnabled } from "./app/session-save";
 import { confirm } from "./app/modals";
 import "./styles.css";
+import "./buttons.css";
 import type { CredentialStatus, TerminalEvent, TransferProgress } from "./types";
 
 let finishBootstrap: () => void;
