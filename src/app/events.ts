@@ -1,3 +1,4 @@
+import { createConfigProfile, deleteConfigProfile, discardConfigChanges, inheritConfigField, saveConfigForm, selectConfigProfile, updateConfigField } from "./config-editor";
 import { folderPath } from "./connection-folders";
 import { isSettingsPage, settingsPageForKey } from "./settings-pages";
 
@@ -469,6 +470,10 @@ export async function runAction(action: string, target: HTMLElement = document.c
       if (await confirm("Restarting ends the programs running in your terminals.", { title: "Restart Ternway?" })) await updates.restartNow();
       break;
     case "open-releases": await openUrl(RELEASES_URL).catch(setError); break;
+    case "config-inherit": if (target.dataset.configReset) inheritConfigField(target.dataset.configReset); break;
+    case "config-profile-create": await createConfigProfile(); break;
+    case "config-profile-delete": await deleteConfigProfile(); break;
+    case "config-discard": await discardConfigChanges(); break;
     case "reload-config": await loadTerminalConfig(true); render(); break;
     case "new-terminal": await openNewTerminal(); break;
     case "reconnect-terminal": await reconnectTerminal(); break;
@@ -499,6 +504,7 @@ export async function runAction(action: string, target: HTMLElement = document.c
 
 export function handleInput(event: Event): void {
   const input = event.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+  if (updateConfigField(input)) return;
   if (!input.dataset.field) return;
   if (input.dataset.field === "server-search") {
     state.serverQuery = input.value;
@@ -540,6 +546,8 @@ export function handleInput(event: Event): void {
 
 export function handleChange(event: Event): void {
   const input = event.target as HTMLInputElement | HTMLSelectElement;
+  if (updateConfigField(input)) return;
+  if (input.dataset.field === "config-profile") { void selectConfigProfile(input.value); return; }
   if (input.dataset.field === "cron-preset") {
     const schedule = input.closest<HTMLFormElement>("form")?.elements.namedItem("schedule") as HTMLInputElement | null;
     if (schedule && input.value) schedule.value = input.value;
@@ -624,7 +632,8 @@ export async function handleSubmit(event: SubmitEvent): Promise<void> {
   event.preventDefault();
   const form = event.target as HTMLFormElement;
   const kind = form.dataset.form;
-  if (kind === "ssh-import") {
+  if (kind === "config-settings") { await saveConfigForm(form); }
+  else if (kind === "ssh-import") {
     if (!form.reportValidity()) return;
     const data = new FormData(form);
     const notice = form.querySelector<HTMLElement>("[data-import-error]")!;

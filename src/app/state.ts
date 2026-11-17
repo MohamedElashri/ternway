@@ -40,6 +40,9 @@ export interface ResolvedProfile {
 
 export interface LoadedTerminalConfig extends ResolvedProfile {
   path: string;
+  revision: string;
+  includes: string[];
+  sources: Map<string, { revision: string; includes: string[] }>;
   /** Each profile is the main config with the profile file layered on top. */
   profiles: Map<string, ResolvedProfile>;
   ignored: string[];
@@ -149,7 +152,7 @@ export class AppState {
   terminalTabs: TerminalTab[] = [];
   activeTerminalTabId: string | null = null;
   terminalGroups: TerminalGroup[] = [];
-  terminalConfig: LoadedTerminalConfig = { path: "", config: DEFAULT_CONFIG, theme: themePreset(this.themeId).terminal, profiles: new Map(), ignored: [], errors: [] };
+  terminalConfig: LoadedTerminalConfig = { path: "", revision: "", includes: [], sources: new Map(), config: DEFAULT_CONFIG, theme: themePreset(this.themeId).terminal, profiles: new Map(), ignored: [], errors: [] };
   keybindings: Keybinding[] = parseKeybindings(platform === "macos" ? MACOS_DEFAULTS : LINUX_DEFAULTS);
   terminalUnlisteners: UnlistenFn[] = [];
   navigationVersion = 0;

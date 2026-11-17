@@ -1,3 +1,4 @@
+import { persistWorkspaceSetting } from "./terminal-config";
 import { icon } from "../icons";
 import { errorText } from "./command-client";
 import { escapeHtml, formatBytes, meter } from "./format";
@@ -75,7 +76,7 @@ export function syncInterfaceScaleControls(): void {
 
 let scaleChanges: Promise<void> = Promise.resolve();
 let appliedScale = DEFAULT_INTERFACE_SCALE;
-export async function setInterfaceScale(scale: number, announce = true): Promise<void> {
+export async function setInterfaceScale(scale: number, announce = true, persistConfig = announce): Promise<void> {
   if (!INTERFACE_SCALE_LEVELS.includes(scale as typeof INTERFACE_SCALE_LEVELS[number])) return;
   state.interfaceScale = scale;
   syncInterfaceScaleControls();
@@ -83,6 +84,7 @@ export async function setInterfaceScale(scale: number, announce = true): Promise
   persist(scale);
   const next = scaleChanges.then(async () => {
     try {
+      if (persistConfig) await persistWorkspaceSetting("interface-scale", String(scale));
       await appWebview.setZoom(scale);
       appliedScale = scale;
       if (announce && state.interfaceScale === scale) showToast(`Interface scale set to ${Math.round(scale * 100)}%.`, "info");

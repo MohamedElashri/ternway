@@ -1,18 +1,20 @@
-import { namedTheme, themePreset, type ThemePreset } from "./theme-presets";
+import { applyThemeTokens, namedTheme, themePreset, rememberTheme, type ThemePreset } from "./theme-presets";
 import { invoke } from "@tauri-apps/api/core";
 import { errorText } from "./command-client";
 import { fontSizePx, hostMatches, keybindLines, parseColors, parseConfig, themeName, terminalTheme, type ColorConfig, type ConfigEntry, type TerminalConfig } from "./config";
 import { LINUX_DEFAULTS, MACOS_DEFAULTS, parseKeybindings, quickTerminalShortcut } from "./keybindings";
-import { platform, quickMode, state, type ResolvedProfile } from "./state";
+import { platform, quickMode, root, state, type ResolvedProfile } from "./state";
 import { applyTerminalAppearance } from "./terminal";
 import type { TerminalAppearance } from "./terminal-surface";
-import { showToast } from "./toasts";
+import { setInterfaceScale, showToast } from "./toasts";
 
 interface LoadedConfig {
   path: string;
+  revision: string;
+  includes: string[];
   entries: ConfigEntry[];
   errors: string[];
-  profiles: { name: string; entries: ConfigEntry[] }[];
+  profiles: { name: string; revision: string; includes: string[]; entries: ConfigEntry[] }[];
 }
 
 // Ghostty's default font is JetBrains Mono (bundled); configured families come first.
@@ -70,7 +72,6 @@ let configLoadVersion = 0;
 /** Reads ~/.config/ternway/config, its includes and profiles, and applies them to open terminals. */
 export async function loadTerminalConfig(announce = false): Promise<void> {
   const version = ++configLoadVersion;
-  const preset = themePreset(state.themeId);
   let loaded: LoadedConfig;
   try {
     loaded = await invoke<LoadedConfig>("load_config");
@@ -81,6 +82,17 @@ export async function loadTerminalConfig(announce = false): Promise<void> {
     return;
   }
   const { config, ignored, errors } = parseConfig(loaded.entries);
+  if (config.appTheme) {
+    const selected = themePreset(config.appTheme);
+    state.themeId = selected.id;
+    state.darkMode = selected.mode === "dark";
+    rememberTheme(localStorage, selected);
+    applyThemeTokens(document.documentElement, selected);
+    root.dataset.theme = selected.mode;
+    root.dataset.colorTheme = selected.id;
+  }
+  const preset = themePreset(state.themeId);
+  if (config.interfaceScale !== null && config.interfaceScale !== state.interfaceScale) await setInterfaceScale(config.interfaceScale, false, false);
   const base = await resolveTheme(config, errors, preset);
   const profiles = new Map<string, ResolvedProfile>();
   for (const profile of loaded.profiles) {
@@ -91,7 +103,7 @@ export async function loadTerminalConfig(announce = false): Promise<void> {
     profiles.set(profile.name, await resolveTheme(parseConfig([...loaded.entries, ...profile.entries]).config, errors, preset));
   }
   if (version !== configLoadVersion) return;
-  state.terminalConfig = { path: loaded.path, ...base, profiles, ignored, errors: [...loaded.errors, ...errors] };
+  state.terminalConfig = { path: loaded.path, revision: loaded.revision, includes: loaded.includes, sources: new Map(loaded.profiles.map(profile => [profile.name, { revision: profile.revision, includes: profile.includes }])), ...base, profiles, ignored, errors: [...loaded.errors, ...errors] };
   state.keybindings = parseKeybindings(keybindLines(platform === "macos" ? MACOS_DEFAULTS : LINUX_DEFAULTS, config.keybinds));
   if (!quickMode) {
     // The main window owns the quick terminal's settings and global hotkey.
@@ -108,4 +120,15 @@ export async function loadTerminalConfig(announce = false): Promise<void> {
     const problems = state.terminalConfig.errors.length;
     showToast(problems ? `Config reloaded with ${problems} problem${problems === 1 ? "" : "s"}; see Settings.` : "Config reloaded.", "info");
   }
+}
+
+// Serialize small GUI preference writes across theme/scale controls and windows.
+let preferenceWrites: Promise<void> = Promise.resolve();
+export async function persistWorkspaceSetting(key: string, value: string): Promise<void> {
+  const write = preferenceWrites.then(async () => {
+    const loaded = await invoke<LoadedConfig>("load_config");
+    await invoke("save_config_settings", { profile: null, expectedRevision: loaded.revision, updates: [{ key, values: [value] }] });
+  });
+  preferenceWrites = write.catch(() => undefined);
+  await write;
 }

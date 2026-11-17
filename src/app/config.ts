@@ -1,4 +1,4 @@
-import { themePreset, DEFAULT_THEME_ID } from "./theme-presets.ts";
+import { themePreset, DEFAULT_THEME_ID, findTheme } from "./theme-presets.ts";
 // Interprets Ghostty-format config entries (read and include-resolved by src-tauri/src/config.rs).
 // Later entries win, like Ghostty. Keys ternway does not implement are reported, not errors.
 
@@ -17,6 +17,8 @@ export interface ColorConfig {
 }
 
 export interface TerminalConfig {
+  appTheme: string | null;
+  interfaceScale: number | null;
   fontFamily: string[];
   /** Points, like Ghostty. */
   fontSize: number;
@@ -75,6 +77,8 @@ export interface ParsedConfig {
 }
 
 export const DEFAULT_CONFIG: TerminalConfig = {
+  appTheme: null,
+  interfaceScale: null,
   fontFamily: [],
   fontSize: 13,
   theme: null,
@@ -137,6 +141,7 @@ function applyColor(colors: ColorConfig, key: string, value: string, errors: str
     "selection-background": "selectionBackground", "selection-foreground": "selectionForeground",
   };
   if (key === "palette") {
+    if (!value) { colors.palette = {}; return true; }
     const match = /^(\d{1,3})\s*=\s*(.+)$/.exec(value);
     const index = match ? Number(match[1]) : NaN;
     const color = match ? parseColor(match[2]) : null;
@@ -168,6 +173,14 @@ export function parseConfig(entries: ConfigEntry[]): ParsedConfig {
     const invalid = () => errors.push(`${where}: invalid value "${value}" for ${key}`);
     if (applyColor(config.colors, key, value, errors, where)) continue;
     switch (key) {
+      case "app-theme":
+        if (!value || findTheme(value)) config.appTheme = value || null; else invalid();
+        break;
+      case "interface-scale":
+        if (!value) config.interfaceScale = null;
+        else if ([0.8, 1, 1.2, 1.4, 1.6, 1.8, 2].includes(Number(value))) config.interfaceScale = Number(value);
+        else invalid();
+        break;
       case "font-family":
         // An empty value resets the list; repeated keys add fallbacks.
         if (value) config.fontFamily.push(value); else config.fontFamily = [];
@@ -220,7 +233,7 @@ export function parseConfig(entries: ConfigEntry[]): ParsedConfig {
         if (Number.isFinite(bytes) && bytes >= 0) config.scrollbackLimit = bytes; else invalid();
         break;
       }
-      case "keybind": config.keybinds.push(value); break;
+      case "keybind": if (value) config.keybinds.push(value); else config.keybinds = []; break;
       case "command": config.command = value || null; break;
       case "shell-integration": config.shellIntegration = value || "detect"; break;
       case "editor": config.editor = value || null; break;

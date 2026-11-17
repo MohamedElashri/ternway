@@ -751,3 +751,16 @@ h1 { margin-bottom: 0; font: 600 35px/1.05 var(--font-display); letter-spacing: 
 .ghostty-command-mark.succeeded { background: #3fb950; opacity: .65; }
 .ghostty-command-mark.failed { background: #f85149; }
 .ghostty-terminal.bell { box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* Config forms share the same source of truth as the file editor. */
+.config-editor fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.config-setting-group { border-top: 1px solid var(--border); padding: 12px 0; }
+.config-setting-group > summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+.config-setting-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding-top: 16px; }
+.config-setting-grid .field-wide { grid-column: 1 / -1; }
+.config-setting-grid small, .config-editor .field small { white-space: normal; overflow-wrap: anywhere; }
+.config-key { font-family: "JetBrains Mono", monospace; opacity: .65; font-size: 10px; }
+.config-profile-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.config-profile-toolbar > .field { flex: 1; min-width: 160px; }
+.config-editor [data-config-notice] { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 620px) { .config-setting-grid { grid-template-columns: minmax(0, 1fr); } }

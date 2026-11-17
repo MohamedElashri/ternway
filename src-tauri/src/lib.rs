@@ -2,6 +2,7 @@
 mod agent_transport;
 mod appimage;
 mod config;
+mod config_edit;
 mod child_process;
 mod credentials;
 mod cron_support;
@@ -1629,6 +1630,19 @@ fn load_config(
 }
 
 #[tauri::command(async)]
+fn save_config_settings(profile: Option<String>, expected_revision: String, updates: Vec<config::ConfigUpdate>) -> Result<(), AppError> {
+    Ok(config_edit::save_at(&config::config_path()?, profile.as_deref(), &expected_revision, &updates)?)
+}
+#[tauri::command(async)]
+fn create_config_profile(name: String) -> Result<(), AppError> {
+    Ok(config_edit::create_at(&config::config_path()?, &name)?)
+}
+#[tauri::command(async)]
+fn delete_config_profile(name: String, expected_revision: String) -> Result<(), AppError> {
+    Ok(config_edit::delete_at(&config::config_path()?, &name, &expected_revision)?)
+}
+
+#[tauri::command(async)]
 fn load_theme(name: String) -> Result<Vec<config::ConfigEntry>, AppError> {
     Ok(config::load_theme(&name)?)
 }
@@ -1993,6 +2007,9 @@ pub fn run() {
             terminal_resize,
             terminal_ack,
             load_config,
+            save_config_settings,
+            create_config_profile,
+            delete_config_profile,
             save_session,
             load_session,
             list_workspaces,

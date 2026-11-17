@@ -252,3 +252,23 @@ Choose a workspace color preset in Settings → Appearance. GitHub Dark and GitH
 defaults; dimmed, high-contrast, colorblind and Dracula presets are also included. Previews apply
 live to the workspace and fallback terminal palette. The light/dark shortcut remembers your last
 choice in each mode. Explicit terminal config and profile colors keep priority. See [theme details](docs/THEMES.md).
+
+## Editing terminal settings
+
+Settings → Terminal provides controls for every supported config key, including fonts,
+colors and palettes, clipboard behavior, shortcuts, environment variables, output triggers,
+window behavior, notifications, quick terminal and updates. Expand a group, edit values and
+choose **Save settings**. **Use inherited / default value** removes a local override when you
+save; included files then supply the value. New-shell options apply to new sessions and initial
+window dimensions apply on the next launch. Clipboard history and saved scrollback remain opt-in.
+
+The same settings are readable and editable in `~/.config/ternway/config`. GUI saves preserve
+comments, unknown options and included Ghostty files. If an external editor changes the file
+while your form is open, saving asks you to reload instead of overwriting the external changes.
+Workspace appearance and zoom are stored as `app-theme` and `interface-scale` too.
+
+Use the configuration selector to edit a profile, or **New profile** and **Delete profile** to
+manage files in the adjacent `profiles/` directory. Profiles inherit the main configuration;
+`match-host` applies a profile automatically to matching SSH hostnames or connection names.
+**Included config files** edits `config-file` entries: one path per line, with an optional `?`
+prefix for files that need not exist. GUI overrides apply after those includes.

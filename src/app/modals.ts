@@ -1,3 +1,4 @@
+import { renderConfigEditor } from "./config-editor";
 import { renderSettingsPages, type SettingsPageContent } from "./settings-pages";
 
 import { renderThemePicker } from "./theme-picker";
@@ -262,6 +263,7 @@ export function renderSecurityModal(): string {
           <h3 id="settings-terminal-title">Terminal</h3>
           <div class="settings-row" data-native-terminal><div class="settings-row-copy"><h4>Native Ghostty engine</h4><p>libghostty-vt 1.0.1 processes terminal output and input in the desktop app.</p></div></div>
           ${renderConfigSettings()}
+          ${renderConfigEditor()}
         </section>`,
     connections: () => `<section class="settings-group" id="settings-connections" tabindex="-1" aria-labelledby="settings-connections-title">
           <h3 id="settings-connections-title">Connections</h3><div class="settings-row"><div class="settings-row-copy"><h4>Connection library</h4><p>Bulk organization, portable backups and recovered remote edits.</p></div><button class="button button-quiet" data-action="library-tools">Manage library</button></div><div class="settings-row"><div class="settings-row-copy"><h4>Transfer queue</h4><p>Review paused jobs and resume interrupted file transfers.</p></div><button class="button button-quiet" data-action="transfer-queue">View transfers</button></div>
@@ -272,7 +274,7 @@ export function renderSecurityModal(): string {
           ${state.credentialSettingsNotice ? `<div class="security-notice" role="status">${icon("check")}<span>${escapeHtml(state.credentialSettingsNotice)}</span></div>` : ""}
           ${state.credentialSettingsError ? `<div class="inline-error" role="alert">${icon("info")}<span>${escapeHtml(state.credentialSettingsError)}</span></div>` : ""}
           <div class="settings-row"><div class="settings-row-copy"><h4>Lock saved credentials</h4><p>Locks after 15 minutes without activity, on screen lock, or when Ternway loses focus. Running sessions stay connected.</p></div><button class="button button-quiet" data-action="lock-vault">Lock now</button></div>
-          <div class="settings-row"><div class="settings-row-copy"><h4>Terminal privacy</h4><p>Clipboard history and saved scrollback are off by default. Configure clipboard-history and save-scrollback in your terminal config to opt in. Raw terminal logs may contain secrets.</p></div><button class="button button-quiet" data-action="clear-private-history">Clear clipboard and logs</button></div>
+          <div class="settings-row"><div class="settings-row-copy"><h4>Terminal privacy</h4><p>Clipboard history and saved scrollback are off by default. Enable them in Terminal → Privacy. Raw terminal logs may contain secrets.</p></div><button class="button button-quiet" data-action="clear-private-history">Clear clipboard and logs</button></div>
           <details class="settings-reset"><summary>Credential recovery and reset</summary>${renderCredentialWarning()}<p>Resetting deletes saved secrets and keeps your connection profiles. You can create a new vault when you next save a password.</p><button class="button button-danger" data-action="reset-credentials" ${configured ? "" : "disabled"}>${icon("trash")} Reset saved credentials</button></details>
         </section>`,
     updates: () => `<div class="settings-group" id="settings-updates" tabindex="-1" role="region" aria-label="Updates">${renderUpdateSection()}</div>`,
@@ -320,7 +322,7 @@ export function renderAuthFieldsForForm(form: HTMLFormElement): void {
 function renderConfigSettings(): string {
   const { path, errors, ignored, profiles } = state.terminalConfig;
   const profileNames = [...profiles.keys()];
-  const profileList = `<p class="config-profiles">${profileNames.length ? `Profiles: ${profileNames.map((name) => `<code>${escapeHtml(name)}</code>`).join(" ")}` : "No profiles yet. Add files to <code>profiles/</code> next to the config; open them from the command palette."}</p>`;
+  const profileList = `<p class="config-profiles">${profileNames.length ? `Profiles: ${profileNames.map((name) => `<code>${escapeHtml(name)}</code>`).join(" ")}` : "No profiles yet. Create one below to override settings for selected hosts."}</p>`;
   const problems = errors.length ? `<ul class="config-problems">${errors.map((error) => `<li>${escapeHtml(error)}</li>`).join("")}</ul>` : "";
   const unsupported = ignored.length
     ? `<details class="config-ignored"><summary>${ignored.length} setting${ignored.length === 1 ? "" : "s"} not supported yet</summary><ul>${ignored.map((item) => `<li><code>${escapeHtml(item)}</code></li>`).join("")}</ul></details>`

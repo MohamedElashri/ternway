@@ -1,11 +1,12 @@
 import { findTheme, oppositeTheme, rememberTheme, restoredTheme, themePreset, THEME_STORAGE_KEY } from "./theme-presets";
 import { state, root } from "./state";
 import { render } from "./render";
-import { loadTerminalConfig } from "./terminal-config";
+import { loadTerminalConfig, persistWorkspaceSetting } from "./terminal-config";
 
 export async function setColorTheme(id: string, persist = true, focusPicker = false): Promise<void> {
   const preset = findTheme(id);
   if (!preset) return;
+  if (persist) await persistWorkspaceSetting("app-theme", preset.id);
   state.themeId = preset.id;
   state.darkMode = preset.mode === "dark";
   if (persist) rememberTheme(localStorage, preset);
