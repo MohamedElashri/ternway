@@ -215,6 +215,7 @@ try:
     wait(lambda: execute("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#22272e';"), 'dimmed palette restored')
     check('all built-in themes apply live without losing terminal output and preserve explicit config colors')
     click('[data-action="close-modal"]')
+    assert execute("return document.querySelectorAll('[data-action=theme]').length;") == 1
     click('[data-action="theme"]')
     if execute("return document.querySelector('[data-theme]')?.dataset.theme;") != "dark":
         click('[data-action="theme"]')
@@ -341,6 +342,7 @@ try:
     system_disk = execute("return Array.from(document.querySelectorAll('.stat-card')).find(el=>el.textContent.includes('System disk'))?.textContent;")
     assert '25%' in system_disk and 'free on /' in system_disk and '/run' not in system_disk, system_disk
     check('real SSH host-key review, rejected-password recovery and root-filesystem overview')
+    assert execute("return document.querySelectorAll('[data-action=theme]').length;") == 1, 'Remote sidebar must not duplicate the global theme toggle'
     click('.nav-item[data-view="terminal"]')
     wait(lambda: execute("return document.querySelector('.terminal-layer')?.textContent.includes('fixture-terminal-ready');"), 'interactive SSH terminal output')
     def remote_input(text):

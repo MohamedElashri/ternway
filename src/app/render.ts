@@ -202,7 +202,6 @@ export function renderSidebar(): string {
 function renderSidebarBottom(): string {
   return `<div class="sidebar-bottom">
       <button class="utility-link" data-action="credential-settings">${icon("settings")} Settings</button>
-      <button class="icon-button sidebar-theme-toggle" data-action="theme" aria-label="${state.darkMode ? "Switch to light appearance" : "Switch to dark appearance"}" title="${state.darkMode ? "Switch to light appearance" : "Switch to dark appearance"}">${icon(state.darkMode ? "sun" : "moon")}</button>
     </div>`;
 }
 
