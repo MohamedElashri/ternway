@@ -123,6 +123,9 @@ def compact_terminal_geometry():
 
 def start():
     global session
+    # WebKit resets pooled HTTP connections when the previous application exits.
+    # A safe status read establishes readiness before the one-shot session POST.
+    wait(lambda: request("GET", "/status").get("ready"), "native driver ready for a new session")
     response = request("POST", "/session", {"capabilities": {"alwaysMatch": {"tauri:options": {"application": str(binary)}}}})
     session = response["sessionId"]
     request("POST", f"/session/{session}/timeouts", {"script": 30000, "pageLoad": 30000, "implicit": 0})
