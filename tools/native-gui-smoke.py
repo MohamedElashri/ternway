@@ -266,7 +266,7 @@ try:
     click(f'[data-action="move-connection-down"][data-connection-id="{original_order[0]}"]')
     wait(lambda: invoke('get_state')['connectionOrder'] == list(reversed(original_order)), 'connection order persisted inside nested folder')
     click('[data-action="close-modal"]')
-    assert execute("return Array.from(document.querySelectorAll('[data-connection-group=\"folder:company/production\"] .server-item')).map(row=>row.dataset.serverId);") == list(reversed(original_order))
+    wait(lambda: execute("return Array.from(document.querySelectorAll('[data-connection-group=\"folder:company/production\"] .server-item')).map(row=>row.dataset.serverId);") == list(reversed(original_order)), 'sidebar reflects saved ordering')
     screenshot('connection-order-folders.png')
     check('saved connection order agrees with sidebar order inside nested folders')
 
@@ -331,7 +331,9 @@ try:
     wait(lambda: execute("return document.querySelector('.terminal-session-status')?.textContent.includes('Disconnected');"), 'disconnected terminal keeps reconnect accessible')
     assert execute("return document.querySelector('.nav-item[data-view=dashboard]')?.disabled===false && document.querySelector('.nav-item[data-view=files]')?.disabled===false;"), 'Exiting a shell must not disable tools on its still-authenticated SSH connection'
     compact_terminal_geometry()
+    exited_pane = execute("return document.querySelector('.term-tab.active').dataset.terminalTab;")
     click('[data-action="reconnect-terminal"]')
+    wait(lambda: execute("return document.querySelector('.term-tab.active').dataset.terminalTab !== arguments[0] && !document.querySelector('[data-action=\"reconnect-terminal\"]').disabled;", exited_pane), 'disconnected reconnect replaces the exited session')
     wait(lambda: execute("return document.querySelector('.terminal-layer')?.textContent.includes('fixture-terminal-ready');"), 'reconnected SSH terminal')
     assert not execute("return document.querySelector('.terminal-layer')?.textContent.includes('CI_REMOTE_λ_漢字');"), 'Reconnect must not replay terminal input'
     remote_input('exit\n')

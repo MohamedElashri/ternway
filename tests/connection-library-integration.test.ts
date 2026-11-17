@@ -14,3 +14,8 @@ test("manual order and folder membership agree for legacy and nested groups", ()
   assert.equal(tree.children.find(f => f.name === "Empty")!.count, 0);
   assert.deepEqual(tree.servers.map(s => s.id), ["d"]);
 });
+
+test("ungrouped profiles serialized as null can be reordered", () => {
+  const servers = [server("a", null as unknown as string), server("b", null as unknown as string)];
+  assert.deepEqual(movedConnectionOrder(servers, ["a", "b"], "a", 1), ["b", "a"]);
+});
