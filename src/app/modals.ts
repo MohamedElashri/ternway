@@ -1,5 +1,8 @@
 import { renderConnectionOrder } from "./connection-order";
 import { renderFolderManager } from "./connection-folders";
+import { renderSettingsPages, type SettingsPageContent } from "./settings-pages";
+
+import { renderThemePicker } from "./theme-picker";
 import { libraryToolsContent } from "./library-tools";
 import { transferQueueContent } from "./transfer-queue";
 import { workspaceLibraryContent } from "./workspace-library";
@@ -246,16 +249,10 @@ export function renderSecurityModal(): string {
   const status = !configured ? "Not set up" : state.credentialStatus.unlocked ? "Unlocked for this session" : "Locked";
   const scalePercent = Math.round(state.interfaceScale * 100);
   const scaleIndex = INTERFACE_SCALE_LEVELS.indexOf(state.interfaceScale as typeof INTERFACE_SCALE_LEVELS[number]);
-  const sections = [["appearance", "Appearance"], ["terminal", "Terminal"], ["connections", "Connections"], ["updates", "Updates"], ["about", "About"]] as const;
-  return renderModalShell("Settings", "Appearance, terminal preferences and connection security.", `
-    <div class="settings-layout">
-      <nav class="settings-nav" aria-label="Settings sections">
-        ${sections.map(([id, label]) => `<button class="button button-quiet" data-action="settings-jump" data-settings-target="settings-${id}">${label}</button>`).join("")}
-      </nav>
-      <div class="settings-content">
-        <section class="settings-group" id="settings-appearance" tabindex="-1" aria-labelledby="settings-appearance-title">
+  const pages: SettingsPageContent = {
+    appearance: () => `<section class="settings-group" id="settings-appearance" tabindex="-1" aria-labelledby="settings-appearance-title">
           <h3 id="settings-appearance-title">Appearance</h3>
-          <div class="settings-row"><div class="settings-row-copy"><h4>Theme</h4><p>Choose a light or dark workspace.</p></div><button class="button button-quiet" data-action="theme">${icon(state.darkMode ? "sun" : "moon")} Use ${state.darkMode ? "light" : "dark"} theme</button></div>
+          ${renderThemePicker(state.themeId)}
           <div class="settings-row"><div class="settings-row-copy"><h4>Interface scale</h4><p>Resize the interface. Use ${platform === "macos" ? "Command" : "Ctrl"} +/− or 0 outside the terminal.</p></div>
             <div class="interface-scale-control" role="group" aria-label="Interface scale">
               <button class="icon-button" type="button" data-action="interface-scale-decrease" aria-label="Decrease interface scale" ${scaleIndex <= 0 ? "disabled" : ""}>${icon("minus")}</button>
@@ -264,33 +261,30 @@ export function renderSecurityModal(): string {
               <button class="button button-quiet scale-reset" type="button" data-action="interface-scale-reset" ${state.interfaceScale === DEFAULT_INTERFACE_SCALE ? "disabled" : ""}>Reset</button>
             </div>
           </div>
-        </section>
-        <section class="settings-group" id="settings-terminal" tabindex="-1" aria-labelledby="settings-terminal-title">
+        </section>`,
+    terminal: () => `<section class="settings-group" id="settings-terminal" tabindex="-1" aria-labelledby="settings-terminal-title">
           <h3 id="settings-terminal-title">Terminal</h3>
           <div class="settings-row"><div class="settings-row-copy"><h4>Renderer</h4><p>Automatic chooses the renderer for your platform. Try DOM if WebGL has display issues.</p></div>
             <label class="field settings-renderer"><span class="sr-only">Terminal renderer</span><select data-field="terminal-renderer" aria-label="Terminal renderer">${(["auto", "webgl", "dom"] as const).map(value => `<option value="${value}" ${state.terminalRenderer === value ? "selected" : ""}>${{ auto: "Automatic", webgl: "WebGL", dom: "DOM" }[value]}</option>`).join("")}</select></label>
           </div>
           ${renderConfigSettings()}
-        </section>
-        <section class="settings-group" id="settings-connections" tabindex="-1" aria-labelledby="settings-connections-title">
+        </section>`,
+    connections: () => `<section class="settings-group" id="settings-connections" tabindex="-1" aria-labelledby="settings-connections-title">
           <h3 id="settings-connections-title">Connections</h3><div class="settings-row"><div class="settings-row-copy"><h4>Connection library</h4><p>Bulk organization, portable backups and recovered remote edits.</p></div><button class="button button-quiet" data-action="library-tools">Manage library</button></div><div class="settings-row"><div class="settings-row-copy"><h4>Transfer queue</h4><p>Review paused jobs and resume interrupted file transfers.</p></div><button class="button button-quiet" data-action="transfer-queue">View transfers</button></div>
           <div class="settings-row"><div class="settings-row-copy"><h4>SSH identities</h4><p>Manage the SSH agents used by your saved connections.</p></div><button class="button button-quiet" data-action="manage-identities">Manage identities</button></div>
+        </section>`,
+    security: () => `<section class="settings-group" id="settings-security" tabindex="-1" aria-labelledby="settings-security-title"><h3 id="settings-security-title">Security</h3>
           <div class="settings-row"><div class="settings-row-copy"><h4>Credential vault <span class="settings-status">${status}</span></h4><p>Saved passwords stay encrypted on this device.</p></div><button class="button button-quiet" data-action="change-master-password" ${configured ? "" : "disabled"}>Change master password</button></div>
           ${state.credentialSettingsNotice ? `<div class="security-notice" role="status">${icon("check")}<span>${escapeHtml(state.credentialSettingsNotice)}</span></div>` : ""}
           ${state.credentialSettingsError ? `<div class="inline-error" role="alert">${icon("info")}<span>${escapeHtml(state.credentialSettingsError)}</span></div>` : ""}
           <div class="settings-row"><div class="settings-row-copy"><h4>Lock saved credentials</h4><p>Locks after 15 minutes without activity, on screen lock, or when Ternway loses focus. Running sessions stay connected.</p></div><button class="button button-quiet" data-action="lock-vault">Lock now</button></div>
           <div class="settings-row"><div class="settings-row-copy"><h4>Terminal privacy</h4><p>Clipboard history and saved scrollback are off by default. Configure clipboard-history and save-scrollback in your terminal config to opt in. Raw terminal logs may contain secrets.</p></div><button class="button button-quiet" data-action="clear-private-history">Clear clipboard and logs</button></div>
           <details class="settings-reset"><summary>Credential recovery and reset</summary>${renderCredentialWarning()}<p>Resetting deletes saved secrets and keeps your connection profiles. You can create a new vault when you next save a password.</p><button class="button button-danger" data-action="reset-credentials" ${configured ? "" : "disabled"}>${icon("trash")} Reset saved credentials</button></details>
-        </section>
-        <div class="settings-group" id="settings-updates" tabindex="-1" role="region" aria-label="Updates">${renderUpdateSection()}</div>
-        <section class="settings-group" id="settings-about" tabindex="-1" aria-labelledby="settings-about-title">
-          <h3 id="settings-about-title">About</h3>
-          <div class="settings-row"><div class="settings-row-copy"><h4>Ternway</h4><p>Version, build details, credits and project links.</p></div><button class="button button-quiet" data-action="show-about">About Ternway</button></div>
-        </section>
-      </div>
-    </div>
-    <div class="settings-footer"><button class="button button-primary" data-action="close-modal">Done</button></div>
-  `, "modal-settings");
+        </section>`,
+    updates: () => `<div class="settings-group" id="settings-updates" tabindex="-1" role="region" aria-label="Updates">${renderUpdateSection()}</div>`,
+    about: () => `<section class="settings-group" id="settings-about" aria-label="About Ternway">${renderAboutContent(true)}</section>`,
+  };
+  return renderModalShell("Settings", "Choose a page to configure your workspace.", `${renderSettingsPages(state.settingsPage, pages)}<div class="settings-footer"><button class="button button-primary" data-action="close-modal">Done</button></div>`, "modal-settings");
 }
 
 export function renderMasterPasswordModal(): string {
