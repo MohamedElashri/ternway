@@ -2,20 +2,24 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { check } from "@tauri-apps/plugin-updater";
-import { icon } from "../icons";
-import { escapeHtml, formatBytes } from "./format";
 import { root } from "./state";
 import { UpdateController } from "./updates";
 import { BRAND } from "./brand";
+import { renderUpdateNotice, renderUpdateView, type UpdateMetadata } from "./update-view";
+import { pendingRestartVersion, rememberInstalledUpdate, UPDATE_RESTART_KEY } from "./update-restart";
 
 export const RELEASES_URL = BRAND.releases;
 
-interface AppMetadata { version: string; updateUnsupportedReason: string }
-let metadata: AppMetadata | null = null;
+let metadata: UpdateMetadata | null = null;
 let metadataError = "";
 
 /** Re-renders only the Updates section, so download progress does not rebuild the whole app. */
 function refreshSection(): void {
+  if (updates.state.phase === "installed" && metadata && updates.state.version) rememberInstalledUpdate(localStorage, metadata.version, updates.state.version);
+  const focused = document.activeElement as HTMLElement | null;
+  const focusAction = focused?.closest("[data-update-section], [data-update-notice]") ? focused.dataset.action : undefined;
+  const notice = root.querySelector<HTMLElement>("[data-update-notice]");
+  if (notice) notice.innerHTML = renderUpdateNotice(updates.state);
   const section = root.querySelector<HTMLElement>("[data-update-section]");
   if (section) {
     const notesScroll = section.querySelector<HTMLElement>(".update-notes")?.scrollTop;
@@ -24,12 +28,20 @@ function refreshSection(): void {
     const notes = root.querySelector<HTMLElement>(".update-notes");
     if (notes && notesScroll !== undefined) notes.scrollTop = notesScroll;
   }
+  if (focusAction) root.querySelector<HTMLElement>(`[data-update-section] [data-action="${focusAction}"], [data-update-notice] [data-action="${focusAction}"]`)?.focus({ preventScroll: true });
+}
+
+function restoreRestartNotice(): void {
+  if (!metadata) return;
+  const version = pendingRestartVersion(localStorage, metadata.version);
+  if (version) updates.restoreInstalled(version);
 }
 
 async function loadMetadata(): Promise<void> {
   try {
-    metadata = await invoke<AppMetadata>("app_metadata");
+    metadata = await invoke<UpdateMetadata>("app_metadata");
     metadataError = "";
+    restoreRestartNotice();
   } catch {
     metadata = null;
     metadataError = "Installation details are unavailable. Check again to retry.";
@@ -46,42 +58,15 @@ export const updates = new UpdateController(() => check({ timeout: 20_000 }), as
 });
 
 void loadMetadata();
+window.addEventListener("storage", event => {
+  if (event.key === UPDATE_RESTART_KEY) restoreRestartNotice();
+});
 
 export async function checkForUpdates(): Promise<void> {
   await Promise.all([loadMetadata(), updates.checkNow()]);
-}
-
-function status(): string {
-  const { phase, version, downloaded, total } = updates.state;
-  switch (phase) {
-    case "checking": return "Checking GitHub releases…";
-    case "current": return "Ternway is up to date.";
-    case "available": return `Ternway ${escapeHtml(version ?? "")} is available.`;
-    case "downloading": return total ? `Downloading… ${Math.min(100, Math.floor((downloaded / total) * 100))}% of ${formatBytes(total)}` : `Downloading… ${formatBytes(downloaded)}`;
-    case "installing": return "Verified. Installing… Approve the system prompt if one appears.";
-    case "installed": return `Ternway ${escapeHtml(version ?? "")} is installed. Restart to use it.`;
-    case "restarting": return "Restarting…";
-    default: return "";
-  }
-}
-
-function actions(): string {
-  const { phase } = updates.state;
-  const reason = metadata?.updateUnsupportedReason ?? "";
-  const releases = `<button class="button button-quiet" type="button" data-action="open-releases">View GitHub releases</button>`;
-  if (phase === "available") {
-    return reason ? releases : `<button class="button button-primary" type="button" data-action="install-update" ${metadata ? "" : "disabled"}>Download and install</button>${releases}`;
-  }
-  if (phase === "installed") return `<button class="button button-primary" type="button" data-action="restart-update">Restart now</button>${releases}`;
-  const label = ({ checking: "Checking…", downloading: "Downloading…", installing: "Installing…", restarting: "Restarting…", error: "Try again" } as Partial<Record<typeof phase, string>>)[phase] ?? "Check for updates";
-  return `<button class="button button-quiet" type="button" data-action="check-updates" ${updates.busy ? "disabled" : ""}>${label}</button>${releases}`;
+  restoreRestartNotice();
 }
 
 export function renderUpdateSection(standalone = false): string {
-  const { phase, notes, error, downloaded, total } = updates.state;
-  const version = metadata ? `Running version: ${escapeHtml(metadata.version)}.` : metadataError ? "Running version unavailable." : "Loading version…";
-  const message = status();
-  const hint = metadataError || metadata?.updateUnsupportedReason || "";
-  const progress = phase === "downloading" ? `<progress class="update-progress" aria-label="Update download" ${total ? `max="${total}" value="${Math.min(downloaded, total)}"` : ""}></progress>` : "";
-  return `<section class="settings-section settings-section-stacked update-section" data-update-section data-update-standalone="${standalone}" ${standalone ? 'aria-label="Update status"' : 'aria-labelledby="update-settings-title"'}><div class="settings-section-copy">${standalone ? "" : '<h3 id="update-settings-title">Updates</h3>'}<p class="update-version">${version}</p><p>Check GitHub releases for the latest version. Downloads are verified before installation.</p><p class="update-status" role="status" aria-live="polite">${message}</p>${progress}${phase === "available" && notes ? `<div class="update-release-notes"><h4>What’s new</h4><pre class="update-notes">${escapeHtml(notes)}</pre></div>` : ""}${hint ? `<p class="update-hint">${escapeHtml(hint)}</p>` : ""}${error ? `<div class="inline-error" role="alert">${icon("info")}<span>${escapeHtml(error)}</span></div>` : ""}</div><div class="config-actions">${actions()}</div>${(phase === "available" && !hint) || phase === "installed" ? '<p class="update-restart-hint">Restart when you’re ready. Restarting ends active terminal sessions.</p>' : ""}</section>`;
+  return renderUpdateView(updates.state, metadata, metadataError, standalone);
 }
