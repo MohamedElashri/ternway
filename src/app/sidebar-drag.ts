@@ -21,7 +21,9 @@ export function installSidebarDrag(root: HTMLElement, actions: SidebarDragAction
   const target = (event: PointerEvent) => {
     const row = rowAt(root.ownerDocument.elementFromPoint(event.clientX, event.clientY));
     if (!row || !root.contains(row.element) || !drag) return null;
-    if (drag.row.kind === "folder" && (row.kind !== "folder" || !row.id)) return null;
+    if (row.kind === drag.row.kind && row.id === drag.row.id) return null;
+    const parent = (path: string) => path.split("/").slice(0, -1).join("/").toLocaleLowerCase();
+    if (drag.row.kind === "folder" && (row.kind !== "folder" || !row.id || parent(row.id) !== parent(drag.row.id))) return null;
     return { row, after: event.clientY > row.element.getBoundingClientRect().top + row.element.getBoundingClientRect().height / 2 };
   };
   const end = () => {
