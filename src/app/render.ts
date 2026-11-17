@@ -141,7 +141,7 @@ export function groupKey(groupName?: string): string {
 }
 
 export function renderServerGroups(servers: ServerProfile[]): string {
-  return renderConnectionFolders(servers, state.snapshot.connectionFolders ?? [], collapsedGroups, Boolean(state.serverQuery.trim()), renderServerItem);
+  return renderConnectionFolders(servers, state.snapshot.connectionFolders ?? [], collapsedGroups, Boolean(state.serverQuery.trim()), renderServerItem, { defaultName: state.snapshot.defaultConnectionFolder, order: state.snapshot.connectionFolderOrder, menuFolder: state.folderMenuPath });
 }
 
 export function shortGroupLabel(group: string): string {
@@ -155,10 +155,10 @@ export function renderServerRail(): string {
     <div class="server-rail-flyout">
       <div class="rail-brand"><span class="brand-mark">${icon("logo")}</span><span class="rail-brand-name">Ternway</span></div>
       <div class="sidebar-section server-section">
-        <div class="section-label-row"><span class="section-label">Connections</span><button class="icon-button" data-action="connection-order" aria-label="Reorder connections" title="Reorder connections">${icon("sort")}</button><button class="icon-button" data-action="connection-folders" aria-label="Organize connection folders" title="Organize folders">${icon("folder")}</button></div>
+        <div class="section-label-row"><span class="section-label">Connections</span><span class="connection-drag-hint" title="Drag connections to reorder or move between folders. Alt+↑/↓ moves the focused item.">Drag to organize</span></div>
         <label class="sidebar-search"><span>${icon("search")}</span><input data-field="server-search" value="${escapeHtml(state.serverQuery)}" placeholder="Search connections…" aria-label="Search connections and notes"/><kbd>${platform === "macos" ? "⌘" : "Ctrl"} K</kbd></label>
         <div class="server-list">
-          ${servers.length || (!query && state.snapshot.connectionFolders?.length) ? renderServerGroups(servers) : `<div class="server-empty">${query ? "No matching connections" : "Add your first SSH connection"}</div>`}
+          ${servers.length || !query ? renderServerGroups(servers) : `<div class="server-empty">${query ? "No matching connections" : "Add your first SSH connection"}</div>`}
         </div>
       </div>
       <div class="rail-utilities">

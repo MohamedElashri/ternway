@@ -1,4 +1,3 @@
-import { movedConnectionOrder } from "./connection-order";
 import { folderPath } from "./connection-folders";
 import { isSettingsPage, settingsPageForKey } from "./settings-pages";
 
@@ -78,7 +77,7 @@ export async function handleClick(event: MouseEvent): Promise<void> {
   closeCustomSelects(root);
   const target = (event.target as HTMLElement).closest<HTMLElement>("[data-window], [data-server-action], [data-action], [data-view], [data-server-id], [data-workspace-tab], [data-workspace-rename], [data-workspace-close], [data-terminal-tab], [data-terminal-close], [data-file-path], [data-file-edit], [data-file-edit-local], [data-file-download], [data-file-delete], [data-file-chmod], [data-file-chown], [data-disk-tab], [data-disk-varlog], [data-disk-open-path], [data-container-platform-tab], [data-docker-tab], [data-docker-action], [data-docker-logs], [data-docker-exec], [data-docker-inspect], [data-logs-source], [data-process-action], [data-service-action], [data-service-details], [data-cron-edit], [data-cron-action], [data-package-action], [data-package-details], [data-account-tab], [data-user-action], [data-group-delete], [data-administration-tab], [data-compose-action], [data-firewall-action], [data-key-remove], [data-quick-action], [data-command-run], [data-command-edit], [data-command-delete], [data-tunnel-toggle], [data-port-forward], [data-tunnel-edit], [data-tunnel-delete]");
   if (!target) return;
-  if (target.dataset.action === "rename-connection-group") event.preventDefault();
+  if (target.dataset.action === "rename-connection-group" || target.dataset.action && target.closest(".server-group-label")) event.preventDefault();
   if (target.dataset.serverAction) {
     event.preventDefault();
     event.stopPropagation();
@@ -291,44 +290,43 @@ export async function handleClick(event: MouseEvent): Promise<void> {
 /** Runs a `data-action`; `target` carries extra data attributes for actions that need them. */
 export async function runAction(action: string, target: HTMLElement = document.createElement("button")): Promise<void> {
   switch (action) {
-    case "connection-order": state.modal = "connection-order"; render(); break;
-    case "move-connection-up":
-    case "move-connection-down":
-    case "reset-connection-order": {
-      const ids = action === "reset-connection-order" ? [] : movedConnectionOrder(state.snapshot.servers, state.snapshot.connectionOrder, target.dataset.connectionId!, action === "move-connection-up" ? -1 : 1);
-      if (!ids) break;
-      try {
-        await invoke("set_connection_order", { serverIds: ids });
-        await refreshSnapshot(false); state.sidebarCopyPlacement = null; render();
-        root.querySelector<HTMLButtonElement>(`[data-action="${action}"][data-connection-id="${CSS.escape(target.dataset.connectionId ?? "")}"]`)?.focus();
-      } catch (error) { setError(error); }
+    case "folder-actions": {
+      const path = target.dataset.folder ?? "";
+      state.folderMenuPath = state.folderMenuPath === path ? null : path;
+      render();
+      root.querySelector<HTMLElement>(`[data-action="folder-actions"][data-folder="${CSS.escape(path)}"]`)?.focus();
       break;
     }
-    case "connection-folders": state.modal = "connection-folders"; render(); break;
     case "create-connection-folder":
     case "rename-connection-folder":
     case "delete-connection-folder":
     case "move-connection-folder": {
-      const returnToFolders = state.modal === "connection-folders";
+      const path = target.dataset.folder ?? "";
+      state.folderMenuPath = null;
       try {
-        const path = target.dataset.folder ?? "";
         if (action === "delete-connection-folder") {
-          if (!await confirm(`Remove “${path}” and its subfolders? All connections in these folders will move to Ungrouped.`, { title: "Remove folder", kind: "warning", confirmLabel: "Remove folder" })) break;
+          if (!path) break;
+          const destination = state.snapshot.defaultConnectionFolder ?? "Default";
+          if (!await confirm(`Delete “${path}” and its subfolders? Its connections will move to “${destination}”.`, { title: "Delete folder", kind: "warning", confirmLabel: "Delete folder" })) break;
           await invoke("delete_connection_folder", { path });
-        } else {
-          const moving = action === "move-connection-folder";
-          const server = moving ? state.snapshot.servers.find(s => s.id === target.dataset.connectionId) : undefined;
-          if (moving && !server) break;
-          const value = await requestTextInput({ title: moving ? "Move connection" : action === "create-connection-folder" ? "New folder" : "Rename or move folder", label: moving ? "Folder path (empty for Ungrouped)" : "Folder path (use / for nested folders)", defaultValue: server?.groupName ?? path, allowEmpty: moving, placeholder: "Work/Production" });
+        } else if (action === "move-connection-folder") {
+          const server = state.snapshot.servers.find(server => server.id === target.dataset.connectionId);
+          if (!server) break;
+          const value = await requestTextInput({ title: "Move connection", label: `Folder (empty for ${state.snapshot.defaultConnectionFolder ?? "Default"})`, defaultValue: server.groupName ?? "", allowEmpty: true });
           if (value === null) break;
-          const destination = folderPath(value);
-          if (moving) await invoke("set_connection_group", { serverIds: [server!.id], groupName: destination });
-          else if (action === "create-connection-folder") await invoke("create_connection_folder", { path: destination });
+          await invoke("set_connection_group", { serverIds: [server.id], groupName: folderPath(value) });
+        } else {
+          const creating = action === "create-connection-folder";
+          const parent = creating ? target.dataset.parent ?? "" : path.split("/").slice(0, -1).join("/");
+          const value = await requestTextInput({ title: creating ? "New folder" : "Rename folder", label: "Folder name", defaultValue: creating ? "" : path ? (path.split("/").at(-1) ?? "") : state.snapshot.defaultConnectionFolder ?? "Default", placeholder: "Production" });
+          if (value === null) break;
+          if (value.includes("/")) throw new Error("Use a folder name without /. Create subfolders with the folder’s + control.");
+          const destination = folderPath(parent ? `${parent}/${value}` : value);
+          if (creating) await invoke("create_connection_folder", { path: destination });
           else await invoke("rename_connection_folder", { path, destination });
         }
-        await refreshSnapshot(false); state.modal = "connection-folders"; render();
+        await refreshSnapshot(false); render();
       } catch (error) { setError(error); }
-      finally { if (returnToFolders && state.modal === null) { state.modal = "connection-folders"; render(); } }
       break;
     }
 
@@ -691,6 +689,12 @@ export function handleKeydown(event: KeyboardEvent): void {
   }
 
   if (composingText(event)) return;
+  if (event.key === "Escape" && state.folderMenuPath !== null && !state.modal) {
+    const path = state.folderMenuPath; state.folderMenuPath = null;
+    event.preventDefault(); render();
+    root.querySelector<HTMLElement>(`[data-action="folder-actions"][data-folder="${CSS.escape(path)}"]`)?.focus();
+    return;
+  }
   const customPicker = (event.target as HTMLElement).closest<HTMLElement>(".custom-select");
   if (customPicker) {
     const trigger = customPicker.querySelector<HTMLButtonElement>(".custom-select-trigger");

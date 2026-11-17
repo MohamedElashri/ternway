@@ -1,5 +1,3 @@
-import { renderConnectionOrder } from "./connection-order";
-import { renderFolderManager } from "./connection-folders";
 import { renderSettingsPages, type SettingsPageContent } from "./settings-pages";
 
 import { renderThemePicker } from "./theme-picker";
@@ -49,8 +47,6 @@ export function finishAppDialog(value: boolean): void {
 }
 
 export function renderModal(): string {
-  if (state.modal === "connection-order") return renderModalShell("Connection order", "Move connections up or down within their folder. Changes are saved immediately.", renderConnectionOrder(state.snapshot.servers, state.snapshot.connectionOrder), "modal-library");
-  if (state.modal === "connection-folders") return renderModalShell("Connection folders", "Create folders, move connections and organize nested folders using paths such as Work/Production.", renderFolderManager(state.snapshot.servers, state.snapshot.connectionFolders), "modal-library");
   if (state.modal === "library-tools") return renderModalShell("Connection library", "Organize, back up and recover your connections.", libraryToolsContent(), "modal-settings modal-library");
   if (state.modal === "transfers") return renderModalShell("Transfer queue", "Review, pause and retry file transfers.", transferQueueContent(), "modal-settings modal-library");
   if (state.modal === "workspaces") return renderModalShell("Workspaces", "Saved connections and terminal layouts for each project.", workspaceLibraryContent(), "modal-workspaces");

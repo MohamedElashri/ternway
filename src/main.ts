@@ -1,3 +1,4 @@
+import { installConnectionSidebar } from "./app/connection-sidebar";
 import { watchColorTheme } from "./app/appearance";
 import { freezeShutdown, releaseShutdown, shutdownFrozen } from "./app/shutdown-freeze";
 import { refreshTransferQueue } from "./app/transfer-queue";
@@ -34,6 +35,7 @@ import { refreshSnapshot, selectLocalWorkspace } from "./app/workspace";
 import { saveSession, sessionSavingEnabled } from "./app/session-save";
 import { confirm } from "./app/modals";
 import "./styles.css";
+import "./sidebar.css";
 import type { CredentialStatus, TerminalEvent, TransferProgress } from "./types";
 
 let finishBootstrap: () => void;
@@ -111,6 +113,7 @@ async function installEventListeners(): Promise<void> {
   }));
 }
 
+installConnectionSidebar(root);
 installTabStripHandlers(root, { closeTerminalGroup, moveTab, renameTab });
 installDockDivider();
 root.addEventListener("click", (event) => { void handleClick(event); });
@@ -153,6 +156,7 @@ window.addEventListener("keydown", (event) => {
   }
   if (handleModalKeydown(root, event)) return;
   const target = event.target as HTMLElement;
+  if (target.closest?.(".server-list") && event.altKey && ["ArrowUp", "ArrowDown"].includes(event.key)) return;
   const inTerminal = Boolean(target.closest?.(".terminal-host"));
   const inField = !inTerminal && target.matches?.("input, textarea, select, [contenteditable]");
   const action = matchKeybinding(state.keybindings, event);

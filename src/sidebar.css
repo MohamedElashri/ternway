@@ -1,0 +1,28 @@
+/* Connection organization stays in the library rather than separate dialogs. */
+.connection-drag-hint { color: var(--faint); font-size: 10px; font-weight: 400; }
+.connection-folder > .server-group-label { min-height: 36px; display: flex; gap: 5px; padding: 2px 3px; color: var(--muted); letter-spacing: normal; text-transform: none; user-select: none; touch-action: none; }
+.connection-folder > .server-group-label::before { content: none; }
+.folder-chevron { display: grid; place-items: center; flex: 0 0 12px; }
+.folder-chevron .icon { width: 12px; height: 12px; transition: transform .15s; }
+.connection-folder[open] > summary .folder-chevron .icon { transform: rotate(90deg); }
+.folder-label { min-width: 0; flex: 1; display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 3px; border: 0; border-radius: 5px; color: var(--ink); background: transparent; text-align: left; font: 600 12px var(--font-ui); cursor: grab; touch-action: none; }
+.folder-label .group-label-full { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.folder-label:hover, .folder-label[aria-expanded=true] { background: var(--canvas-deep); }
+.folder-default-badge { color: var(--faint); font-size: 9px; font-weight: 400; }
+.folder-add { flex: 0 0 24px; width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+.folder-add .icon { width: 14px; height: 14px; }
+.folder-add:hover { color: var(--accent-strong); background: var(--accent-soft); }
+.folder-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 1px 4px 6px 20px; padding: 5px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); }
+.folder-actions button { min-height: 28px; padding: 4px 7px; border: 0; border-radius: 4px; background: transparent; color: var(--ink); font: 500 11px var(--font-ui); cursor: pointer; }
+.folder-actions button:hover { background: var(--canvas-deep); }
+.folder-actions .danger-action { color: var(--red); }
+.folder-protection { flex-basis: 100%; padding: 3px 7px; color: var(--faint); font-size: 10px; }
+.connection-folder > summary .group-count { flex: 0 0 auto; margin-left: 0; font-size: 10px; }
+.connection-folder-contents { margin-left: 10px; padding-left: 4px; }
+.server-item { touch-action: none; }
+.sidebar-dragging { opacity: .45; }
+.sidebar-drop-before, .sidebar-drop-after { position: relative; }
+.sidebar-drop-before::after, .sidebar-drop-after::after { content: ""; position: absolute; left: 0; right: 0; height: 2px; background: var(--accent); pointer-events: none; }
+.sidebar-drop-before::after { top: 0; }
+.sidebar-drop-after::after { bottom: 0; }
+.sidebar-drop-inside { outline: 1px solid var(--accent); outline-offset: -1px; background: var(--accent-soft); border-radius: 5px; }

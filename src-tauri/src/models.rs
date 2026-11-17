@@ -136,6 +136,8 @@ pub struct AppStateSnapshot {
     pub servers: Vec<ServerProfile>,
     pub connection_order: Vec<String>,
     pub connection_folders: Vec<String>,
+    pub connection_folder_order: Vec<String>,
+    pub default_connection_folder: String,
     pub identities: Vec<crate::identities::Identity>,
     pub ssh_keys: Vec<SshKey>,
     pub ssh_config_entries: Vec<SshConfigEntry>,

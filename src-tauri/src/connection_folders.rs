@@ -47,7 +47,7 @@ fn within(path: &str, parent: &str) -> bool {
     path == parent || path.starts_with(&format!("{parent}/"))
 }
 
-fn folders(db: &Connection) -> Result<Vec<String>, String> {
+pub(crate) fn folders(db: &Connection) -> Result<Vec<String>, String> {
     let mut stmt = db.prepare("SELECT path FROM connection_folders UNION SELECT group_name FROM servers WHERE group_name IS NOT NULL AND trim(group_name) != ''").map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |r| r.get::<_, String>(0))
@@ -87,11 +87,18 @@ impl Store {
         source: &str,
         destination: Option<&str>,
     ) -> Result<(), String> {
+        if source.is_empty() {
+            return match destination {
+                Some(name) => self.rename_default_connection_folder(name),
+                None => Err("The default folder cannot be deleted".into()),
+            };
+        }
         let source = normalize_path(source)?;
         let destination = destination.map(normalize_path).transpose()?;
         let mut db = self.connection.lock().map_err(|e| e.to_string())?;
         let tx = db.transaction().map_err(|e| e.to_string())?;
         let existing = folders(&tx)?;
+        let saved_order = crate::connection_sidebar::folder_order(&tx)?;
         if !existing
             .iter()
             .any(|path| path.to_lowercase() == source.to_lowercase())
@@ -155,6 +162,10 @@ impl Store {
                 ensure_folders(&tx, &path)?;
             }
         }
+        let order = saved_order.into_iter().filter_map(|path| {
+            if within(&path, &source) { remap(&path) } else { Some(path) }
+        }).collect::<Vec<_>>();
+        crate::connection_sidebar::write_folder_order(&tx, &order)?;
         tx.commit().map_err(|e| e.to_string())
     }
 }

@@ -70,6 +70,7 @@ export class AppState {
   sidebarCopyPlacement: { sourceId: string; copyId: string } | null = null;
   activeView: View = "dashboard";
   serverQuery = "";
+  folderMenuPath: string | null = null;
   themeId = storedAppearance.id;
   darkMode = storedAppearance.mode === "dark";
   loading = true;

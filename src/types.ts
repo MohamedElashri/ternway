@@ -58,6 +58,8 @@ export interface AppStateSnapshot {
   servers: ServerProfile[];
   connectionOrder?: string[];
   connectionFolders?: string[];
+  connectionFolderOrder?: string[];
+  defaultConnectionFolder?: string;
   sshKeys: SshKey[];
   sshConfigEntries: SshConfigEntry[];
 }
