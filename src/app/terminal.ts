@@ -1,3 +1,4 @@
+import { reconnectSession } from "./terminal-reconnect";
 import { shutdownFrozen } from "./shutdown-freeze";
 import { ClipboardHistory } from "./clipboard-history";
 import { confirmTerminalClose } from "./terminal-close";
@@ -282,7 +283,7 @@ async function openTerminal(placement: Placement, command?: string, title?: stri
     group = state.terminalGroups.find((item) => item.id === source.groupId)!;
     group.root = placement.kind === "split" ? splitLeaf(group.root, source.id, id, placement.direction) : replaceLeaf(group.root, source.id, id);
     group.focusedId = id;
-    group.zoomed = false;
+    if (placement.kind === "split") group.zoomed = false;
   }
   // A split runs the given command (an editor) or a plain shell, even next to a container exec pane.
   const tabCommand = command;
@@ -380,8 +381,14 @@ export function queueTerminalInput(sessionId: string, data: string): void {
 export async function reconnectTerminal(): Promise<void> {
   const current = state.terminalTabs.find((tab) => tab.id === state.activeTerminalTabId);
   if (!current) return;
-  if (current.sessionId && !current.closed) await invoke("close_terminal", { sessionId: current.sessionId }).catch(() => undefined);
-  await openTerminal({ kind: "replace", tab: current });
+  try {
+    await reconnectSession(current, {
+      close: sessionId => invoke("close_terminal", { sessionId }),
+      replace: () => openTerminal({ kind: "replace", tab: current }),
+      present: render,
+      exists: () => state.terminalTabs.includes(current),
+    });
+  } catch (error) { setError(error); }
 }
 
 /** Makes a pane the focused one; `moveFocus` also moves keyboard focus into it. */

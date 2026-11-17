@@ -1,3 +1,4 @@
+import { renderReconnectAction } from "../terminal-reconnect";
 import { phaseLabels } from "../connection-lifecycle";
 import { icon } from "../../icons";
 import type { ProcessInfo, RemoteFile, ServiceInfo } from "../../types";
@@ -53,7 +54,7 @@ export function renderTerminal(): string {
   const label = linked ? server.openSsh?.alias || server.host : `${server?.username ?? "user"}@${server?.host ?? "server"}`;
   const status = current ? phaseLabels[current.phase ?? (current.closed ? "disconnected" : current.connecting ? "launching" : "ready")] : "";
   const detail = `${label}: ${status}${linked ? ". Authentication and host-key questions appear in the terminal. Config changes apply on reconnect." : ""}`;
-  const controls = current ? `<div class="terminal-session-controls" role="group" aria-label="Terminal session controls"><span class="terminal-session-status" role="status" title="${escapeHtml(detail)}" aria-label="${escapeHtml(detail)}">${escapeHtml(status)}</span>${current.closed ? `<button class="text-button terminal-session-action" data-action="reconnect-terminal">${icon("restart")} ${current.phase === "dormant" ? "Start session" : "Reconnect"}</button>` : ""}<button class="text-button terminal-session-action" data-action="clear-terminal" title="Clear terminal">Clear</button></div>` : "";
+  const controls = current ? `<div class="terminal-session-controls" role="group" aria-label="Terminal session controls"><span class="terminal-session-status" role="status" title="${escapeHtml(detail)}" aria-label="${escapeHtml(detail)}">${escapeHtml(status)}</span>${renderReconnectAction(current)}<button class="text-button terminal-session-action" data-action="clear-terminal" title="Clear terminal">Clear</button></div>` : "";
   return `<section class="terminal-workspace terminal-workspace-remote" aria-label="Remote terminal"><div class="terminal-session-bar">${renderTabStrip()}${controls}</div>${current ? `<div class="terminal-surface" data-terminal-surface="${current.id}"></div>` : `<div class="terminal-empty"><div class="terminal-empty-art">${icon("terminal")}</div><h2>${linked ? "Open an OpenSSH session." : "Open a terminal."}</h2><p>${linked ? "Your SSH configuration is read each time you connect." : "Connect to start an interactive shell."}</p><button class="button button-primary" data-action="new-terminal">${icon("terminalSmall")} Open terminal</button></div>`}</section>`;
 }
 

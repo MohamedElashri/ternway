@@ -58,6 +58,10 @@ button on a listening TCP port forwards it to `localhost` in one click. Saved co
 command palette and are typed into the focused pane for you to run.
 Bindings can be changed with `keybind =` lines in the config.
 
+Use **Reconnect** in the remote terminal bar to open a fresh session in the focused pane,
+including when the current connection is still running. The tab and split layout stay in place;
+previous commands are not replayed. The button is disabled while a session is opening.
+
 ## Terminals beside server views
 
 In a server's Files, Logs, Docker or any other view, `Ctrl+\`` (or the **Terminal** button in the
