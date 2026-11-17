@@ -346,6 +346,7 @@ try:
     upload.write_bytes(bytes(range(256)) * 32768)
     job = invoke('enqueue_transfer', serverId=server_id, direction='upload', localPath=str(upload), remotePath='/')
     click('[data-action="credential-settings"]')
+    click('[data-settings-page="connections"]')
     click('[data-action="transfer-queue"]')
     click('[data-action="run-transfer-queue"]')
     wait(lambda: any(p.stat().st_size > 0 for p in (fixture_root / 'files').glob('.fixture-upload.bin.*.part')), 'partial upload before pause')
