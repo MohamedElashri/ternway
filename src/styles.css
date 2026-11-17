@@ -682,6 +682,8 @@ h1 { margin-bottom: 0; font: 600 35px/1.05 var(--font-display); letter-spacing: 
 .connection-folder .server-item:focus-within .server-item-actions { visibility: visible; opacity: 1; }
 /* Settings pages keep navigation and Done visible while the current page scrolls. */
 .modal-settings { display: flex; flex-direction: column; height: min(720px, calc(100vh - 48px)); overflow: hidden; }
+/* Keep notifications above the centered dialog's 63px footer and its controls. */
+#app:has(.modal-settings) .app-toast { bottom: calc(max(24px, (100vh - 720px) / 2) + 76px); }
 .settings-layout { flex: 1; min-height: 0; }
 .settings-nav { position: static; align-self: stretch; overflow-y: auto; }
 .settings-nav .button[aria-current="page"] { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }

@@ -20,6 +20,7 @@ The release remains v0.4.0; this review does not merge or publish it.
 | Full-screen programs | Normal-shell command marks/copy coordinates could refer to unrelated alternate-screen content. | Hide shell marks and disable prompt jumping/output copying in the alternate screen. Native mouse press/drag/release is captured by a real program. |
 | Resource/errors | Render errors were discarded, risking a silent stuck session; modifiers could snap a scrolled viewport to the bottom. | Surface rendering failures and close the originating PTY; only actual key input changes following. Unchanged geometry no longer causes native resize traffic. |
 | Interface scale | Rapid scale/reset operations could complete out of order, leaving the wrong zoom and disabled reset controls. | Serialize native zoom changes while updating requested control state immediately; a live rapid-increase/reset test waits for the actual webview geometry. |
+| Settings notifications | At enlarged scale, a notification could cover the Done button. | Position Settings notifications above the dialog footer; native tests assert no overlap at desktop and narrow sizes. |
 | Linux chrome | A light GTK menu row appeared above the custom dark titlebar. | Hide that redundant Linux menubar; retain the macOS application menu. |
 | Connection folders | Locale-sensitive case conversion could merge distinct folders or misapply ordering under Turkish locales. | Use locale-independent identity folding consistent with Rust. A separate Turkish-locale process verifies folder identity and order. |
 

@@ -22,8 +22,11 @@ return {sections:document.querySelectorAll('.settings-group').length,overflow:mo
     h['check']('rapid interface scale changes finish in request order and reset remains available while zoom is pending')
     h['click']('[data-action="interface-scale-increase"]')
     h['wait'](lambda:h['read']("return Math.abs(innerWidth-1000)<2;"),'native webview applies 120% zoom')
+    h['wait'](lambda:h['shown']('.app-toast'),'scale notification displayed')
+    assert h['read']("const t=document.querySelector('.app-toast').getBoundingClientRect(),f=document.querySelector('.settings-footer').getBoundingClientRect();return t.bottom<=f.top;"),'scale notification covers desktop Settings footer'
     h['request']('POST',f"/session/{h['session']}/window/rect",{'width':640,'height':480})
     assert h['read']("const f=document.querySelector('.settings-footer').getBoundingClientRect();return f.top>=0&&f.bottom<=innerHeight+1;"),'scaled settings footer clipped'
+    assert h['read']("const t=document.querySelector('.app-toast')?.getBoundingClientRect(),f=document.querySelector('.settings-footer').getBoundingClientRect();return !t||t.bottom<=f.top;"),'scale notification covers narrow Settings footer'
     h['screenshot']('settings-review-scaled.png')
     # WebKitWebDriver's pointer coordinates are unreliable while the native
     # webview is zoomed. Exercise the real keyboard activation path instead.
