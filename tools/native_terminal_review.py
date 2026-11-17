@@ -9,12 +9,6 @@ def run(h):
     def output_has(text):
         return h['read']("return [...document.querySelectorAll('.terminal-host:not([hidden]) .ghostty-accessibility')].some(el=>el.textContent.includes(arguments[0]));", text)
 
-    def input_element():
-        return h['element']('.terminal-host:not([hidden]) .ghostty-input')
-
-    def type_text(text):
-        h['request']('POST', f"/session/{h['session']}/element/{input_element()}/value", {'text': text})
-
     def keys(*values):
         actions = []
         for value in values:
@@ -28,7 +22,11 @@ def run(h):
 
     def program(code, ready):
         encoded = base64.b64encode(code.encode()).decode()
-        type_text('python3 -c ' + shlex.quote(f"import base64;exec(base64.b64decode('{encoded}'))") + '\n')
+        # Fixture source is a paste, rather than hundreds of synthetic key events.
+        # Keep Enter separate so the browser paste path cannot execute it implicitly.
+        command = 'python3 -c ' + shlex.quote(f"import base64;exec(base64.b64decode('{encoded}'))")
+        browser_paste(command)
+        keys('\ue007')
         h['wait'](lambda: output_has(ready), ready)
 
     def browser_paste(text):
