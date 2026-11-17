@@ -695,7 +695,7 @@ try:
     (data_dir / "transfers.json").write_text("damaged test queue")
     start()
     check_startup_size()
-    assert execute("return document.querySelector('#app').dataset.colorTheme;") == 'github-dark-dimmed', 'Selected theme survives restart'
+    wait(lambda:execute("return document.querySelector('#app')?.dataset.colorTheme==='github-dark-dimmed';"),'selected theme survives restart and restored webview reattaches')
     wait(lambda: execute("return document.body.textContent.includes('Start session');"), "restored dormant panes")
     wait(lambda:execute("return document.body.textContent.includes(arguments[0]);",history_marker),'opted-in history restored as inert native cells')
     for handle in request('GET', f'/session/{session}/window/handles'):
