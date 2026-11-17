@@ -458,21 +458,32 @@ try:
     wait(lambda: shown('[data-action="credential-settings"]'), 'other window bootstrap before shared update notice')
     request('POST', f'/session/{session}/window', {'handle':update_handle})
     execute("""
-      const original = window.__TAURI_INTERNALS__.invoke;
+      const original = window.fetch;
       const fake = window.__ternwayUpdateTest = { original, checks:0, restarts:0 };
-      window.__TAURI_INTERNALS__.invoke = async (command, args, options) => {
-        if(command==='app_metadata') return {...await original(command,args,options),updateUnsupportedReason:''};
-        if(command==='plugin:updater|check') { fake.checks++; return {rid:2140001,currentVersion:'0.3.2',version:'99.0.0-test',body:'Simulated update for native UI coverage'}; }
-        if(command==='plugin:updater|download') {
-          args.onEvent.onmessage({event:'Started',data:{contentLength:10}});
-          args.onEvent.onmessage({event:'Progress',data:{chunkLength:10}});
-          args.onEvent.onmessage({event:'Finished'});
-          return 2140002;
+      const reply = (value, ok=true) => new Response(JSON.stringify(value), {headers:{'Content-Type':'application/json','Tauri-Response':ok?'ok':'error'}});
+      // Tauri's invoke and IPC properties are immutable in a real webview.
+      // Intercept the standard fetch transport instead of assigning to them.
+      window.fetch = async (input, options) => {
+        const url = new URL(typeof input==='string'?input:input.url);
+        if(url.protocol!=='ipc:') return original(input,options);
+        const command = decodeURIComponent(url.pathname.slice(1));
+        if(!['app_metadata','plugin:updater|check','plugin:updater|download','plugin:updater|install','plugin:resources|close','request_app_restart'].includes(command)) return original(input,options);
+        const args = JSON.parse(options.body);
+        if(command==='app_metadata') {
+          const response = await original(input,options);
+          return reply({...await response.json(),updateUnsupportedReason:''});
         }
-        if(command==='plugin:updater|install') return new Promise(resolve=>{fake.finishInstall=resolve;});
-        if(command==='plugin:resources|close' && [2140001,2140002].includes(args.rid)) return;
-        if(command==='request_app_restart') { fake.restarts++; throw new Error('Restart cancelled; all windows remain open'); }
-        return original(command,args,options);
+        if(command==='plugin:updater|check') { fake.checks++; return reply({rid:2140001,currentVersion:'0.3.2',version:'99.0.0-test',body:'Simulated update for native UI coverage'}); }
+        if(command==='plugin:updater|download') {
+          const channel = Number(args.onEvent.split(':')[1]);
+          [{event:'Started',data:{contentLength:10}},{event:'Progress',data:{chunkLength:10}},{event:'Finished'}].forEach((message,index)=>window.__TAURI_INTERNALS__.runCallback(channel,{index,message}));
+          window.__TAURI_INTERNALS__.runCallback(channel,{index:3,end:true});
+          return reply(2140002);
+        }
+        if(command==='plugin:updater|install') return new Promise(resolve=>{fake.finishInstall=()=>resolve(reply(null));});
+        if(command==='plugin:resources|close' && [2140001,2140002].includes(args.rid)) return reply(null);
+        if(command==='request_app_restart') { fake.restarts++; return reply('Restart cancelled; all windows remain open',false); }
+        return original(input,options);
       };
       return true;
     """)
@@ -509,7 +520,7 @@ try:
     wait(lambda: execute('return window.__ternwayUpdateTest.restarts===1;'), 'restart action reaches save-barrier command')
     wait(lambda: shown('[data-update-section] [data-action="restart-update"]'), 'cancelled shutdown keeps update ready')
     click('.modal-settings [data-action="close-modal"]')
-    execute("window.__TAURI_INTERNALS__.invoke=window.__ternwayUpdateTest.original; localStorage.removeItem('ternway-update-restart'); delete window.__ternwayUpdateTest; return true;")
+    execute("window.fetch=window.__ternwayUpdateTest.original; localStorage.removeItem('ternway-update-restart'); delete window.__ternwayUpdateTest; return true;")
     check('updater distinguishes installation from restart, retains readiness across navigation and windows, and honours cancellation')
 
     # Quit exercises the same all-window save barrier used by updater restart.
