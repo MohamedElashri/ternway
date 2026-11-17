@@ -1732,7 +1732,7 @@ fn parse_ssh_config(path: &std::path::Path) -> Vec<SshConfigEntry> {
     ssh_config::read(path).unwrap_or_default()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn read_ssh_config(path: String) -> Result<Vec<SshConfigEntry>, String> {
     let path = if let Some(tail) = path.strip_prefix("~/") {
         dirs::home_dir()
