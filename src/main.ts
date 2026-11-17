@@ -88,7 +88,7 @@ async function installEventListeners(): Promise<void> {
     viewer.status = "stopped";
     render();
   }));
-  state.terminalUnlisteners.push(await listen("config-changed", () => { void loadTerminalConfig(true).then(refreshConfigEditor); }));
+  state.terminalUnlisteners.push(await listen("config-changed", () => { void loadTerminalConfig().then(refreshConfigEditor); }));
   state.terminalUnlisteners.push(await listen<{ id: string; remotePath: string; status: string; message?: string }>("remote-edit", (event) => {
     const { id, remotePath, status, message } = event.payload;
     const name = remotePath.split("/").pop() || remotePath;

@@ -14,7 +14,13 @@ interface EditorDraft { profile: string; revision: string; baseline: TerminalCon
 let selectedProfile = "";
 let draft: EditorDraft | null = null;
 function editor(): EditorDraft {
-  if (selectedProfile && !state.terminalConfig.profiles.has(selectedProfile)) selectedProfile = "";
+  if (selectedProfile && !state.terminalConfig.profiles.has(selectedProfile)) {
+    if (draft?.profile === selectedProfile && dirty(draft)) {
+      draft.error = "This profile was removed outside Settings. Your unsaved fields are kept here; reload to choose another profile.";
+      return draft;
+    }
+    selectedProfile = "";
+  }
   const sourceNow = selectedProfile ? state.terminalConfig.sources.get(selectedProfile) : state.terminalConfig;
   const configNow = (selectedProfile ? state.terminalConfig.profiles.get(selectedProfile) : state.terminalConfig)!.config;
   const unchanged = (baseline: TerminalConfig): boolean => CONFIG_SETTINGS.every(field => settingValue(field, baseline) === settingValue(field, configNow));
