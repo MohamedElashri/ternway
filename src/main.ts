@@ -1,3 +1,4 @@
+import { installTabNavigation } from "./app/tab-view";
 import { watchColorTheme } from "./app/appearance";
 import { freezeShutdown, releaseShutdown, shutdownFrozen } from "./app/shutdown-freeze";
 import { refreshTransferQueue } from "./app/transfer-queue";
@@ -21,7 +22,7 @@ import { closeModal } from "./app/actions/admin";
 import { appendLogOutput } from "./app/actions/logs";
 import { transferUpload } from "./app/actions/remote";
 import { errorText } from "./app/command-client";
-import { handleChange, handleClick, handleInput, handleKeydown, handleSubmit, runAction, workspaceTabDrag } from "./app/events";
+import { handleChange, handleClick, renameWorkspaceTab, handleInput, handleKeydown, handleSubmit, runAction, workspaceTabDrag } from "./app/events";
 import { render } from "./app/render";
 import { composingText, matchKeybinding } from "./app/keybindings";
 import { appWindow, DEFAULT_INTERFACE_SCALE, quickMode, root, state } from "./app/state";
@@ -30,10 +31,11 @@ import { loadTerminalConfig } from "./app/terminal-config";
 import { installTabStripHandlers } from "./app/terminal-tabs";
 import { closeTerminalGroup, dropOnPane, installDockDivider, moveTab, paneAt, renameTab, restoreSession, runTerminalAction, type SavedSession } from "./app/terminal";
 import { dismissTransferToast, setInterfaceScale, showToast, stepInterfaceScale, syncTransferToast } from "./app/toasts";
-import { refreshSnapshot, selectLocalWorkspace } from "./app/workspace";
+import { refreshSnapshot, selectLocalWorkspace, selectWorkspaceTab, closeWorkspaceTab } from "./app/workspace";
 import { saveSession, sessionSavingEnabled } from "./app/session-save";
 import { confirm } from "./app/modals";
 import "./styles.css";
+import "./tabs.css";
 import type { CredentialStatus, TerminalEvent, TransferProgress } from "./types";
 
 let finishBootstrap: () => void;
@@ -111,6 +113,8 @@ async function installEventListeners(): Promise<void> {
   }));
 }
 
+installTabNavigation(root, "workspace", { select: selectWorkspaceTab, close: closeWorkspaceTab, rename: renameWorkspaceTab });
+installTabNavigation(root, "terminal", { select: id => { const group = state.terminalGroups.find(group => group.id === id); if (group) { state.activeTerminalTabId = group.focusedId; render(); } }, close: closeTerminalGroup, rename: renameTab });
 installTabStripHandlers(root, { closeTerminalGroup, moveTab, renameTab });
 installDockDivider();
 root.addEventListener("click", (event) => { void handleClick(event); });
@@ -126,6 +130,7 @@ root.addEventListener("pointerdown", workspaceTabDrag.pointerDown);
 root.addEventListener("pointermove", workspaceTabDrag.pointerMove);
 root.addEventListener("pointerup", workspaceTabDrag.finishPointerDrag);
 root.addEventListener("pointercancel", workspaceTabDrag.finishPointerDrag);
+root.addEventListener("lostpointercapture", workspaceTabDrag.lostPointerCapture);
 root.addEventListener("click", (event) => {
   const backdrop = (event.target as HTMLElement).closest<HTMLElement>("[data-backdrop], [data-app-dialog]");
   if (backdrop && event.target === backdrop) closeModal();

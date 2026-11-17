@@ -363,6 +363,13 @@ try:
     assert execute("return document.querySelectorAll('[data-action=theme]').length;") == 1, 'Remote sidebar must not duplicate the global theme toggle'
     click('.nav-item[data-view="terminal"]')
     wait(lambda: execute("return document.querySelector('.terminal-layer')?.textContent.includes('fixture-terminal-ready');"), 'interactive SSH terminal output')
+    def check_tab_alignment():
+        geometry = execute("const work=[...document.querySelectorAll('.workspace-tab')].map(el=>{const r=el.getBoundingClientRect();return {height:r.height,top:r.top};});const terms=[...document.querySelectorAll('.term-tab')].map(el=>el.getBoundingClientRect().height);return {work,terms,nested:document.querySelectorAll('button button').length};")
+        assert geometry['work'] and all(abs(tab['height']-34)<1 for tab in geometry['work']), geometry
+        assert max(tab['top'] for tab in geometry['work'])-min(tab['top'] for tab in geometry['work'])<1, geometry
+        assert all(abs(height-34)<1 for height in geometry['terms']), geometry
+        assert geometry['nested']==0, geometry
+    check_tab_alignment()
     def remote_input(text):
         target = execute("return document.querySelector('.terminal-host:not([hidden]) .xterm-helper-textarea');")
         request('POST', f'/session/{session}/element/{target["element-6066-11e4-a52e-4f735466cecf"]}/value', {'text':text})
@@ -371,6 +378,7 @@ try:
     for width, height in [(1400, 900), (820, 650), (640, 480)]:
         request('POST', f'/session/{session}/window/rect', {'width':width, 'height':height})
         wait(lambda: execute('return Math.abs(window.innerWidth-arguments[0])<=16;', width), 'resized remote terminal viewport')
+        check_tab_alignment()
         compact_terminal_geometry()
     screenshot('remote-terminal-compact.png')
     click('[data-action="clear-terminal"]')
@@ -396,6 +404,7 @@ try:
     wait(lambda: execute('return Math.abs(window.innerWidth-1400)<=16;'), 'desktop viewport restored after narrow terminal checks')
     click('.nav-item[data-view="dashboard"]')
     wait(lambda: execute("return !!document.querySelector('.nav-item.active[data-view=dashboard]') && !!document.querySelector('.page-head');"), 'overview restored before remote-tool navigation')
+    screenshot('workspace-terminal-tabs.png')
     check('remote SSH terminal uses one compact control row and fills desktop/narrow windows, with working input, Clear and reconnect')
     for view, expected_text in [
         ('processes', '/usr/bin/fixture --label two words'),
