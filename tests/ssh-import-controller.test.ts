@@ -174,3 +174,53 @@ test("Browse cancellation keeps the source; a chosen file scans automatically", 
   assert.equal(f.controller.source, "/picked config"); assert.equal(f.control("path").value, "/picked config");
   f.dom.window.close();
 });
+
+test("a closed import cannot mutate or unlock a reopened dialog's new save", async () => {
+  const oldSave = deferred<{ created: boolean }>();
+  const newSave = deferred<{ created: boolean }>();
+  const f = fixture();
+  f.effects.save = async (_draft, source, alias) => {
+    f.saves.push(`${source}:${alias}`);
+    if (source === "/config") return oldSave.promise;
+    if (alias === "lab") return newSave.promise;
+    return { created: true };
+  };
+  await f.controller.scan(f.form);
+  f.control("importScope").value = "all";
+  const oldImport = f.controller.submit(f.form);
+  const oldCompleted = f.controller.completed;
+  const oldSelected = f.controller.selected;
+  const reopened = f.form.cloneNode(true) as HTMLFormElement;
+  f.form.remove();
+  f.dom.window.document.body.append(reopened);
+  f.controller.reset();
+  const reopenedPath = reopened.elements.namedItem("path") as HTMLInputElement;
+  reopenedPath.value = "/new";
+  (reopened.elements.namedItem("importScope") as HTMLSelectElement).value = "all";
+  await f.controller.scan(reopened);
+  assert.notEqual(f.controller.completed, oldCompleted);
+  assert.notEqual(f.controller.selected, oldSelected);
+  const newImport = f.controller.submit(reopened);
+  const newNotice = () => reopened.querySelector("[data-import-error]")!.textContent;
+  const pendingNotice = newNotice();
+  assert.deepEqual(f.saves, ["/config:lab", "/new:lab"]);
+
+  oldSave.resolve({ created: true });
+  await oldImport;
+  assert.equal(newNotice(), pendingNotice, "old completion must not replace new progress");
+  assert.equal(reopened.querySelector<HTMLFieldSetElement>("fieldset")!.disabled, true);
+  assert.equal(reopened.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled, true);
+  assert.equal(f.controller.completed.size, 0, "old result must not mark the new source's alias completed");
+  assert.equal(f.controller.selected.has("lab"), true);
+  assert.equal(oldCompleted.size, 0, "obsolete results must not mutate captured selection state");
+  await f.controller.submit(reopened);
+  assert.equal(f.saves.length, 2, "old finally must not unlock a concurrent second submission");
+
+  newSave.resolve({ created: true });
+  await newImport;
+  assert.deepEqual(f.saves, ["/config:lab", "/new:lab", "/new:proxy", "/new:git"]);
+  assert.deepEqual([...f.controller.completed], ["lab", "proxy", "git"]);
+  assert.match(newNotice()!, /Imported 3 of 3/);
+  assert.equal(f.refreshes.length, 2, "successful saves from both dialogs still refresh the library");
+  f.dom.window.close();
+});
