@@ -9,6 +9,7 @@ import { drawGhostty, ghosttyModifiers, rowColumns, rowText, scrollbarMetrics, t
 export interface TerminalAppearance {
   theme: TerminalTheme; fontFamily: string; fontSize: number;
   cursorStyle: "block" | "bar" | "underline"; cursorBlink: boolean; macOptionIsMeta: boolean; scrollback: number;
+  imageStorageMb?: number;
   adjustUnderlinePosition?: number; clickRepeatInterval?: number; resizeOverlay?: "always" | "never" | "after-first";
 }
 export interface TerminalSurfaceOptions {
@@ -137,7 +138,7 @@ export class TerminalSurface {
   get rows(): number { return this.rowCount; }
   get fontSize(): number { return this.appearance.fontSize; }
   get bracketedPaste(): boolean { return this.frame?.bracketedPaste ?? false; }
-  private nativeAppearance(): object { return { ...this.appearance, cols: this.columns, rows: this.rowCount, imageStorageMb: Math.ceil(this.options.imageStorageMb) }; }
+  private nativeAppearance(): object { return { ...this.appearance, cols: this.columns, rows: this.rowCount, imageStorageMb: Math.ceil(this.appearance.imageStorageMb ?? this.options.imageStorageMb) }; }
   /** Preserve input ordering even when one IPC round trip takes longer than another. */
   private action<T = unknown>(action: object, current: () => boolean = () => true): Promise<T> {
     const task = this.operations.then(async () => {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_CONFIG, parseConfig } from "../src/app/config.ts";
-import { windowSettings } from "../src/app/window-config.ts";
+import { WindowConfigQueue, windowSettings } from "../src/app/window-config.ts";
 
 function parse(text: string) {
   return parseConfig(text.trim().split("\n").map((line, index) => {
@@ -59,4 +59,19 @@ test("clearing explicit window options restores defaults without affecting first
   const previous = { ...DEFAULT_CONFIG, fullscreen: true, windowDecoration: true, windowWidth: 100, windowHeight: 40 };
   assert.deepEqual(windowSettings(DEFAULT_CONFIG, previous, metrics), { title: "Ternway", fullscreen: false, decorations: false, theme: "dark", width: 1200, height: 780 });
   assert.deepEqual(windowSettings(DEFAULT_CONFIG, undefined, metrics), { title: "Ternway", fullscreen: null, decorations: null, theme: "dark", width: null, height: null });
+});
+
+
+test("window IPC changes finish in order and subsequent deltas use the latest applied config", async () => {
+  const calls: object[] = []; let finish!: () => void;
+  const queue = new WindowConfigQueue(async settings => { calls.push(settings); if (calls.length === 1) await new Promise<void>(resolve => { finish = resolve; }); });
+  const metrics = { cellWidth: 9, cellHeight: 20, chromeWidth: 272, chromeHeight: 100, dark: true };
+  const first = queue.enqueue({ ...DEFAULT_CONFIG, fullscreen: true, windowWidth: 90 }, metrics);
+  const second = queue.enqueue({ ...DEFAULT_CONFIG, fullscreen: false, windowWidth: 100 }, metrics);
+  await Promise.resolve(); assert.equal(calls.length, 1);
+  finish(); await Promise.all([first, second]); assert.equal(calls.length, 2);
+  assert.equal((calls[1] as { width: number }).width, 1172);
+  await queue.enqueue({ ...DEFAULT_CONFIG, fullscreen: false, windowWidth: 100 }, metrics);
+  assert.equal((calls[2] as { width: number | null }).width, null);
+  assert.equal((calls[2] as { fullscreen: boolean | null }).fullscreen, null);
 });
