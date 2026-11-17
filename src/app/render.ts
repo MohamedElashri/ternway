@@ -1,3 +1,4 @@
+import { renderWorkspaceTab } from "./tab-view";
 import { renderUpdateNotice } from "./update-view";
 import { updates } from "./updater";
 import { orderedConnections } from "./connection-order";
@@ -18,7 +19,7 @@ import { activeCapabilities, activeDock, activeServer, activeServerIsConnected, 
 import { renderEmptyWorkspaceView, renderErrorView, renderInlineErrorView, renderLoadingView, renderTitlebarView, renderWelcomeView } from "./static-views";
 import { groupTitle, mountTerminal } from "./terminal";
 import { renderAppToast, renderTransferToast } from "./toasts";
-import type { View, WorkspaceTab } from "./types";
+import type { View } from "./types";
 import { renderAccounts, renderAdministration, renderCommands, renderCron, renderNetwork, renderPackages, renderTunnels } from "./views/admin";
 import { renderDisk } from "./views/disk";
 import { renderDocker } from "./views/docker";
@@ -66,6 +67,7 @@ export function render(): void {
       if (scrollCommandResultsIntoView()) state.shouldScrollToCommandResults = false;
     }, 0);
   }
+  root.querySelectorAll<HTMLElement>(".workspace-tabs .workspace-tab.active, .terminal-tab-list .term-tab.active").forEach(tab => tab.scrollIntoView({ block: "nearest", inline: "nearest" }));
   enhanceSelects(root);
   state.renderedLocation = nextLocation;
   mountTerminal();
@@ -218,16 +220,12 @@ export function renderServerItem(server: ServerProfile): string {
 }
 
 export function renderTabBar(): string {
-  const tabs = state.openServerTabs.map((tab) => ({ tab, server: state.snapshot.servers.find((server) => server.id === tab.serverId) })).filter((item): item is { tab: WorkspaceTab; server: ServerProfile } => Boolean(item.server));
-  const tabContent = tabs.length ? tabs.map(({ tab, server }) => {
-    const selected = tab.id === state.activeWorkspaceTabId;
-    const connected = connectedServerIds.has(server.id) || hasInteractiveSession(server.id);
-    const label = tab.label || server.name;
-    return `<button class="workspace-tab ${selected ? "active" : ""}" data-workspace-tab="${escapeHtml(tab.id)}" role="tab" aria-selected="${selected}"><span class="workspace-tab-status ${connected ? "online" : ""}"></span><span class="workspace-tab-copy">${escapeHtml(label)}</span><span class="workspace-tab-action" data-workspace-tab-action data-workspace-rename="${escapeHtml(tab.id)}" title="Rename tab" aria-label="Rename ${escapeHtml(label)} tab">${icon("edit")}</span><span class="workspace-tab-action workspace-tab-close" data-workspace-tab-action data-workspace-close="${escapeHtml(tab.id)}" title="Close tab" aria-label="Close ${escapeHtml(label)} tab">${icon("close")}</span></button>`;
-  }).join("") : "";
-  const local = isLocalWorkspace();
-  const localTab = `<button class="workspace-tab workspace-tab-local ${local ? "active" : ""}" data-action="open-local" aria-pressed="${local}" title="Shells on this machine"><span class="workspace-tab-icon">${icon("terminalSmall")}</span><span class="workspace-tab-copy">Local</span><span class="workspace-tab-action workspace-tab-close" data-workspace-close="local" title="Close local workspace" aria-label="Close local workspace">${icon("close")}</span></button>`;
-  return `<div class="workspace-tabbar"><button class="button button-quiet" data-action="workspace-library" title="Saved workspace layouts">Workspaces</button>${state.localWorkspaceOpen ? localTab : `<button class="icon-button" data-action="open-local" aria-label="New local terminal" title="New local terminal">${icon("terminalSmall")}</button>`}<div class="workspace-tabs" role="tablist" aria-label="Open server workspaces">${tabContent}</div>${state.activeServerId && activeServerIsConnected() ? `<button class="button button-quiet workspace-disconnect" data-action="disconnect">Disconnect</button>` : ""}</div>`;
+  const remote = state.openServerTabs.map(tab => {
+    const server = state.snapshot.servers.find(server => server.id === tab.serverId);
+    return server ? renderWorkspaceTab({ id: tab.id, label: tab.label || server.name, active: tab.id === state.activeWorkspaceTabId, status: connectedServerIds.has(server.id) || hasInteractiveSession(server.id) ? "online" : undefined }) : "";
+  }).join("");
+  const local = state.localWorkspaceOpen ? renderWorkspaceTab({ id: "local", label: "Local", active: isLocalWorkspace(), local: true, status: state.terminalTabs.some(tab => tab.workspaceTabId === "local" && !tab.closed) ? "online" : undefined }) : "";
+  return `<div class="workspace-tabbar"><button class="workspace-launcher" type="button" data-action="workspace-library" title="Saved workspaces" aria-label="Saved workspaces">${icon("dashboard")}</button><div class="workspace-tabs" role="tablist" aria-label="Open workspaces">${local}${remote}</div>${!state.localWorkspaceOpen ? `<button class="workspace-launcher" type="button" data-action="open-local" aria-label="New local terminal" title="New local terminal">${icon("terminalSmall")}</button>` : ""}${state.activeServerId && activeServerIsConnected() ? `<button class="workspace-disconnect" type="button" data-action="disconnect" title="Disconnect from server" aria-label="Disconnect from server">${icon("network")}<span>Disconnect</span></button>` : ""}</div>`;
 }
 
 export function renderWelcome(): string {

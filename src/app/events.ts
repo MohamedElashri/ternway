@@ -105,14 +105,7 @@ export async function handleClick(event: MouseEvent): Promise<void> {
   if (target.dataset.workspaceRename) {
     event.preventDefault();
     event.stopPropagation();
-    state.renamingWorkspaceTabId = target.dataset.workspaceRename;
-    state.modal = "workspace-tab-rename";
-    render();
-    window.setTimeout(() => {
-      const input = root.querySelector<HTMLInputElement>('form[data-form="workspace-tab-rename"] input[name="label"]');
-      input?.focus();
-      input?.select();
-    }, 0);
+    renameWorkspaceTab(target.dataset.workspaceRename);
     return;
   }
   if (target.dataset.workspaceClose) {
@@ -285,6 +278,17 @@ export async function handleClick(event: MouseEvent): Promise<void> {
   if (target.dataset.tunnelDelete) { await deleteTunnel(target.dataset.tunnelDelete); return; }
   const action = target.dataset.action;
   if (action) await runAction(action, target);
+}
+
+export function renameWorkspaceTab(id: string): void {
+  if (id === "local" || !state.openServerTabs.some(tab => tab.id === id)) return;
+  state.renamingWorkspaceTabId = id;
+  state.modal = "workspace-tab-rename";
+  render();
+  window.setTimeout(() => {
+    const input = root.querySelector<HTMLInputElement>('form[data-form="workspace-tab-rename"] input[name="label"]');
+    input?.focus(); input?.select();
+  }, 0);
 }
 
 /** Runs a `data-action`; `target` carries extra data attributes for actions that need them. */

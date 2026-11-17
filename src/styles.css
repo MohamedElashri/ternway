@@ -160,26 +160,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .sidebar-bottom .utility-link { flex: 1; }
 
 .main-area { min-width: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
-.workspace-tabbar { min-height: 45px; display: flex; align-items: stretch; gap: 12px; padding: 6px 18px 0 0; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--canvas) 90%, transparent); }
-.workspace-tabbar .workspace-tabs { min-width: 0; flex: 1; display: flex; align-items: flex-end; gap: 4px; margin: 0 4px; padding: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; border: 0; border-radius: 0; background: transparent; scrollbar-width: none; }
-.workspace-tabbar .workspace-tabs::-webkit-scrollbar { display: none; width: 0; height: 0; }
-.workspace-tab-placeholder { height: 38px; display: flex; align-items: center; padding: 0 12px; color: var(--faint); font-size: 11px; }
-.workspace-tab { position: relative; min-width: 120px; max-width: 190px; height: 38px; flex: 0 0 auto; display: flex; align-items: center; gap: 9px; padding: 4px 7px 4px 11px; border: 1px solid transparent; border-bottom: 0; border-radius: 9px 9px 0 0; background: transparent; color: var(--muted); cursor: grab; text-align: left; touch-action: none; user-select: none; }
-.workspace-tab:hover { background: color-mix(in srgb, var(--paper) 58%, transparent); color: var(--ink); }
-.workspace-tab.active { border-color: var(--line); background: var(--paper); color: var(--ink); }
-.workspace-tab.dragging { opacity: .45; cursor: grabbing; }
-.workspace-tab.drop-before::before, .workspace-tab.drop-after::before { content: ""; position: absolute; z-index: 2; top: 5px; bottom: 5px; width: 2px; border-radius: 2px; background: var(--accent); }
-.workspace-tab.drop-before::before { left: -3px; }
-.workspace-tab.drop-after::before { right: -3px; }
-.workspace-tab.active::after { content: ""; position: absolute; right: 0; bottom: -1px; left: 0; height: 1px; background: var(--paper); }
-.workspace-tab-status { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--line-strong); }
-.workspace-tab-status.online { background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
-.workspace-tab-copy { min-width: 0; flex: 1; overflow: hidden; font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-tab-action { width: 24px; height: 24px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 7px; color: var(--faint); }
-.workspace-tab-action:hover { color: var(--ink); background: var(--canvas-deep); }
-.workspace-tab-close:hover { color: var(--accent-strong); background: var(--accent-soft); }
-.workspace-tab-action .icon { width: 12px; height: 12px; }
-.workspace-disconnect { align-self: center; flex: 0 0 auto; min-height: 30px; margin-bottom: 5px; }
 .toolbar { min-height: 83px; padding: 12px 34px; display: flex; align-items: flex-start; gap: 18px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--canvas) 90%, transparent); }
 .toolbar-search { position: relative; flex: 1; max-width: 650px; height: 53px; }
 .toolbar-search > span { position: absolute; top: 22px; left: 16px; transform: translateY(-50%); color: var(--faint); }
@@ -380,7 +360,6 @@ h1 { margin-bottom: 0; font: 600 35px/1.05 var(--font-display); letter-spacing: 
 
 /* Tier 3 administration and container platform */
 .administration-workspace { display: grid; gap: 14px; }
-.workspace-tabs { overflow-x: auto; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
 .tier3-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; padding: 0 18px 18px; }
 .tier3-card { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--canvas); }
 .tier3-card-head { display: flex; align-items: center; justify-content: space-between; }
@@ -461,13 +440,8 @@ h1 { margin-bottom: 0; font: 600 35px/1.05 var(--font-display); letter-spacing: 
 .terminal-session-action { flex: 0 0 auto; min-height: 28px; padding: 0 6px; color: var(--term-muted); font: 10px var(--font-display); white-space: nowrap; }
 .terminal-session-action:hover { color: var(--term-fg); }
 @media (max-width: 820px) { .terminal-session-status { max-width: 90px; } }
-.workspace-tab.workspace-tab-local { min-width: 0; margin-left: 14px; align-self: flex-end; cursor: pointer; font-family: var(--font-display); font-size: 12px; }
-.workspace-tab-icon { display: grid; place-items: center; color: var(--green); }
-.workspace-tab-icon .icon { width: 15px; height: 15px; }
 .nav-item .nav-item-note { color: var(--red); }
 
-.workspace-tab-local.active { border-color: var(--term-line); background: var(--terminal-background, var(--term-bg)); color: var(--term-fg); }
-.workspace-tab-local.active::after { background: var(--terminal-background, var(--term-bg)); }
 
 /* Terminals render in a fixed layer above the content area; see mountTerminal(). */
 .terminal-layer { position: fixed; z-index: 10; box-sizing: border-box; }
@@ -536,24 +510,6 @@ h1 { margin-bottom: 0; font: 600 35px/1.05 var(--font-display); letter-spacing: 
 .terminal-workspace-local { display: flex; flex-direction: column; }
 
 /* Terminal tab strip (renderTabStrip, terminal-tabs.ts) */
-.tab-strip { flex: 0 0 auto; display: flex; align-items: stretch; gap: 2px; min-height: 34px; padding: 4px 6px 0; overflow-x: auto; border-bottom: 1px solid var(--term-line); background: var(--term-chrome); scrollbar-width: none; }
-.term-tab { position: relative; flex: 0 1 200px; min-width: 96px; max-width: 220px; display: flex; align-items: center; gap: 7px; padding: 0 5px 0 10px; border-radius: 7px 7px 0 0; color: var(--term-muted); cursor: pointer; font: 12px/1 var(--font-display); user-select: none; }
-.term-tab:hover { background: rgba(255, 255, 255, .04); color: var(--term-fg); }
-.term-tab.active { background: var(--terminal-background, var(--term-bg)); color: var(--term-fg); }
-.term-tab-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.term-tab-dot { flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: #50fa7b; }
-.term-tab-dot.closed { background: #ff5555; }
-.term-tab .pane-count, .term-tab .broadcast-badge { margin-left: 0; }
-.term-tab-close { flex: 0 0 auto; display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: inherit; cursor: pointer; opacity: 0; }
-.term-tab:hover .term-tab-close, .term-tab.active .term-tab-close { opacity: .65; }
-.term-tab-close:hover { background: var(--term-line); opacity: 1; }
-.term-tab-close .icon, .term-tab-new .icon { width: 13px; height: 13px; }
-.term-tab-new { flex: 0 0 auto; display: grid; place-items: center; width: 30px; margin-left: 2px; border: 0; border-radius: 6px; background: transparent; color: var(--term-muted); cursor: pointer; }
-.term-tab-new:hover { background: rgba(255, 255, 255, .06); color: var(--term-fg); }
-.term-tab.dragging { opacity: .45; }
-.term-tab.drop-before::before, .term-tab.drop-after::after { content: ""; position: absolute; top: 6px; bottom: 6px; width: 2px; border-radius: 1px; background: #bd93f9; }
-.term-tab.drop-before::before { left: -2px; }
-.term-tab.drop-after::after { right: -2px; }
 
 /* Terminal dock: a server view with its terminals beside it (render.ts renderDockLayout). */
 .content-area-docked { display: flex; padding: 0; overflow: hidden; }
@@ -566,7 +522,6 @@ h1 { margin-bottom: 0; font: 600 35px/1.05 var(--font-display); letter-spacing: 
 .dock-divider:hover { background: var(--accent); }
 .terminal-dock { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--terminal-background, var(--term-bg)); }
 .terminal-dock .terminal-surface { flex: 1; min-height: 0; padding: 6px 4px 4px 10px; }
-.tab-strip-controls { margin-left: auto; display: flex; gap: 2px; }
 .page-actions .button.active { border-color: var(--accent); color: var(--accent-strong); }
 
 .update-section .settings-section-copy { flex: 1 1 280px; }
@@ -699,7 +654,6 @@ h1 { margin-bottom: 0; font: 600 35px/1.05 var(--font-display); letter-spacing: 
 .workspace-library-empty p { max-width: 52ch; margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.6; }
 @media (max-width: 760px) { .saved-workspace { flex-wrap: wrap; } .saved-workspace-actions { width: 100%; justify-content: flex-end; } }
 
-.term-tab-dot.saved { background: var(--term-muted); opacity: .7; }
 
 /* Library tools share the connection list's contrast and compact spacing. */
 .modal-settings .import-hosts { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: var(--canvas); }
