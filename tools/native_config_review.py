@@ -15,7 +15,7 @@ def run(g):
         g['execute']("document.querySelectorAll('.config-setting-group').forEach(el=>el.open=true);return true;", idempotent=True)
 
     def value(key):
-        return g['read']("return document.querySelector('[data-config-key="'+arguments[0]+'"]')?.value;", key)
+        return g['read']("return [...document.querySelectorAll('[data-config-key]')].find(el=>el.dataset.configKey===arguments[0])?.value;", key)
 
     def set_value(key, contents):
         expand_groups()
