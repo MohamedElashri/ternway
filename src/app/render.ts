@@ -1,3 +1,5 @@
+import { renderUpdateNotice } from "./update-view";
+import { updates } from "./updater";
 import { orderedConnections } from "./connection-order";
 import { folderPath, renderConnectionFolders } from "./connection-folders";
 import { settingsFocusKey, restoreSettingsFocus } from "./settings-pages";
@@ -99,6 +101,7 @@ export function renderShell(): string {
     ${isLocalWorkspace() ? "" : renderSidebar()}
     <main class="main-area">
       ${renderTabBar()}
+      <div class="update-notice-host" data-update-notice>${renderUpdateNotice(updates.state)}</div>
       ${isLocalWorkspace()
         ? `<section class="content-area content-area-local">${state.errorMessage ? `<div class="local-error">${renderInlineError()}</div>` : ""}${renderTerminal()}</section>`
         : dockShown()

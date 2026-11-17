@@ -22,7 +22,7 @@ export type DownloadEvent =
   | { event: "Progress"; data: { chunkLength: number } }
   | { event: "Finished" };
 
-export type UpdatePhase = "idle" | "checking" | "current" | "available" | "downloading" | "installing" | "installed" | "restarting" | "error";
+export type UpdatePhase = "idle" | "checking" | "current" | "available" | "preparing" | "downloading" | "verifying" | "installing" | "installed" | "restarting" | "error";
 export interface UpdateState {
   phase: UpdatePhase;
   version?: string;
@@ -33,7 +33,7 @@ export interface UpdateState {
   error?: string;
 }
 
-const BUSY: UpdatePhase[] = ["checking", "downloading", "installing", "restarting"];
+const BUSY: UpdatePhase[] = ["checking", "preparing", "downloading", "verifying", "installing", "restarting"];
 const PROGRESS_INTERVAL_MS = 100;
 
 export class UpdateController {
@@ -60,16 +60,23 @@ export class UpdateController {
     this.changed();
   }
 
-  private async release(): Promise<void> {
+  private release(): void {
     const previous = this.pending;
     this.pending = null;
-    await previous?.close().catch(() => undefined);
+    // Cleanup must not hold the UI in a busy phase if the IPC resource close stalls.
+    try { void previous?.close().catch(() => undefined); } catch { /* best effort */ }
+  }
+
+  restoreInstalled(version: string): void {
+    if (this.busy || this.state.phase === "installed") return;
+    this.release();
+    this.set({ phase: "installed", version, error: undefined });
   }
 
   async checkNow(): Promise<void> {
     if (this.busy || this.state.phase === "installed") return;
     this.set({ phase: "checking", version: undefined, notes: undefined, date: undefined, downloaded: 0, total: undefined, error: undefined });
-    await this.release();
+    this.release();
     try {
       this.pending = await this.check();
       const update = this.pending;
@@ -82,12 +89,14 @@ export class UpdateController {
   async install(): Promise<void> {
     if (this.state.phase !== "available" || !this.pending) return;
     const update = this.pending;
-    this.set({ phase: "downloading", downloaded: 0, total: undefined, error: undefined });
+    this.set({ phase: "preparing", downloaded: 0, total: undefined, error: undefined });
     let lastProgress = 0;
     try {
       await this.prepareInstall();
+      this.set({ phase: "downloading" });
       await update.download((event) => {
-        if (event.event === "Started") this.set({ total: event.data.contentLength });
+        if (event.event === "Finished") this.set({ phase: "verifying" });
+        else if (event.event === "Started") this.set({ total: event.data.contentLength });
         else if (event.event === "Progress") {
           this.state.downloaded += event.data.chunkLength;
           if (Date.now() - lastProgress >= PROGRESS_INTERVAL_MS) { lastProgress = Date.now(); this.changed(); }
@@ -98,9 +107,10 @@ export class UpdateController {
       await update.install();
       this.set({ phase: "installed" });
     } catch (error) {
-      this.set({ phase: "error", error: `The update could not be installed. Check again to retry, or download it from the releases page. ${updateError(error)}` });
+      const step = ({ preparing: "prepared", downloading: "downloaded", verifying: "verified", installing: "installed" } as Partial<Record<UpdatePhase, string>>)[this.state.phase] ?? "installed";
+      this.set({ phase: "error", error: `The update could not be ${step}. Check again to retry, or download it from the releases page. ${updateError(error)}` });
     } finally {
-      await this.release();
+      this.release();
     }
   }
 

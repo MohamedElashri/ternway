@@ -159,3 +159,62 @@ test("structured restart errors show their message instead of object serializati
   assert.match(controller.state.error ?? "", /Saving a window failed/);
   assert.doesNotMatch(controller.state.error ?? "", /object Object/);
 });
+
+test("preparation, download completion and installation are distinct busy stages", async () => {
+  let prepare!: () => void, verify!: () => void, install!: () => void;
+  const phases: string[] = [];
+  const update = fakeUpdate([]);
+  update.download = async onEvent => {
+    onEvent({ event: "Finished" });
+    await new Promise<void>(resolve => { verify = resolve; });
+  };
+  update.install = () => new Promise(resolve => { install = resolve; });
+  const controller = new UpdateController(async () => update, async () => {}, () => phases.push(controller.state.phase), () => new Promise(resolve => { prepare = resolve; }));
+  await controller.checkNow();
+  const installing = controller.install();
+  assert.equal(controller.state.phase, "preparing");
+  assert.equal(controller.busy, true);
+  prepare();
+  await Promise.resolve();
+  assert.equal(controller.state.phase, "verifying");
+  assert.equal(controller.busy, true);
+  assert.equal(install, undefined, "download completion is not proof of verification");
+  verify();
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(controller.state.phase, "installing");
+  await controller.restartNow();
+  assert.equal(controller.state.phase, "installing", "restart cannot begin while installation is pending");
+  install();
+  await installing;
+  assert.equal(controller.state.phase, "installed");
+  assert.deepEqual(phases, ["checking", "available", "preparing", "downloading", "verifying", "installing", "installed"]);
+});
+
+test("stalled or failed resource cleanup does not block readiness or future checks", async () => {
+  const update = fakeUpdate([]);
+  update.close = () => new Promise(() => {});
+  let checks = 0;
+  const controller = new UpdateController(async () => ++checks === 1 ? update : null, async () => {}, () => {});
+  await controller.checkNow();
+  await controller.checkNow();
+  assert.equal(controller.state.phase, "current");
+  assert.equal(checks, 2);
+
+  const installed = new UpdateController(async () => update, async () => {}, () => {});
+  await installed.checkNow(); await installed.install();
+  assert.equal(installed.state.phase, "installed");
+  update.close = async () => { throw new Error("resource already consumed"); };
+  const failedClose = new UpdateController(async () => update, async () => {}, () => {});
+  await failedClose.checkNow(); await failedClose.install();
+  assert.equal(failedClose.state.phase, "installed");
+});
+
+test("restored restart readiness skips redundant checks and never installs again", async () => {
+  let checks = 0;
+  const controller = new UpdateController(async () => { checks++; return null; }, async () => {}, () => {});
+  controller.restoreInstalled("0.3.2");
+  await controller.checkNow(); await controller.install();
+  assert.equal(checks, 0);
+  assert.equal(controller.state.phase, "installed");
+  assert.equal(controller.state.version, "0.3.2");
+});

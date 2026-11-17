@@ -462,6 +462,68 @@ try:
     request('POST', f'/session/{session}/window', {'handle':original_handle})
     check("named layout opens in another native window at a usable size")
 
+    # Exercise the shipped JS updater and real UI with a simulated IPC installer.
+    # No release download, package-manager command, or real restart runs here.
+    update_handle = request('GET', f'/session/{session}/window')
+    other_handle = next(handle for handle in request('GET', f'/session/{session}/window/handles') if handle != update_handle)
+    request('POST', f'/session/{session}/window', {'handle':other_handle})
+    wait(lambda: shown('[data-action="credential-settings"]'), 'other window bootstrap before shared update notice')
+    request('POST', f'/session/{session}/window', {'handle':update_handle})
+    execute("""
+      const original = window.__TAURI_INTERNALS__.invoke;
+      const fake = window.__ternwayUpdateTest = { original, checks:0, restarts:0 };
+      window.__TAURI_INTERNALS__.invoke = async (command, args, options) => {
+        if(command==='app_metadata') return {...await original(command,args,options),updateUnsupportedReason:''};
+        if(command==='plugin:updater|check') { fake.checks++; return {rid:2140001,currentVersion:'0.3.2',version:'99.0.0-test',body:'Simulated update for native UI coverage'}; }
+        if(command==='plugin:updater|download') {
+          args.onEvent.onmessage({event:'Started',data:{contentLength:10}});
+          args.onEvent.onmessage({event:'Progress',data:{chunkLength:10}});
+          args.onEvent.onmessage({event:'Finished'});
+          return 2140002;
+        }
+        if(command==='plugin:updater|install') return new Promise(resolve=>{fake.finishInstall=resolve;});
+        if(command==='plugin:resources|close' && [2140001,2140002].includes(args.rid)) return;
+        if(command==='request_app_restart') { fake.restarts++; throw new Error('Restart cancelled; all windows remain open'); }
+        return original(command,args,options);
+      };
+      return true;
+    """)
+    if shown('.backdrop [data-action="close-modal"]'):
+        click('.backdrop [data-action="close-modal"]')
+    click('[data-action="credential-settings"]')
+    click('[data-settings-page="updates"]')
+    click('[data-update-section] [data-action="check-updates"]')
+    wait(lambda: shown('[data-action="install-update"]'), 'simulated update available')
+    click('[data-action="install-update"]')
+    wait(lambda: execute("return typeof window.__ternwayUpdateTest.finishInstall==='function';"), 'installer is pending')
+    assert not shown('[data-action="restart-update"]'), 'No restart before installation completes'
+    assert execute("return document.querySelector('[aria-current=step]')?.textContent;") == 'Install'
+    screenshot('update-installing.png')
+    click('.modal-updates [data-action="close-modal"]')
+    assert shown('[data-update-notice] [data-action="check-updates"]'), 'Background update details stay accessible'
+    execute("window.__ternwayUpdateTest.finishInstall(); return true;")
+    wait(lambda: shown('[data-update-notice] [data-action="restart-update"]'), 'persistent restart-to-finish notice')
+    assert execute("return JSON.parse(localStorage.getItem('ternway-update-restart')).version;") == '99.0.0-test'
+    request('POST', f'/session/{session}/window', {'handle':other_handle})
+    wait(lambda: shown('[data-update-notice] [data-action="restart-update"]'), 'other window receives restart readiness')
+    request('POST', f'/session/{session}/window', {'handle':update_handle})
+    click('[data-update-notice] [data-action="restart-update"]')
+    click('[data-action="cancel-app-dialog"]')
+    assert execute('return window.__ternwayUpdateTest.restarts;') == 0, 'Cancel leaves active terminals running'
+    click('[data-action="credential-settings"]')
+    click('[data-settings-page="updates"]')
+    wait(lambda: shown('[data-update-section] [data-action="restart-update"]'), 'restart readiness survives settings navigation')
+    assert not shown('[data-action="install-update"]')
+    assert execute('return window.__ternwayUpdateTest.checks;') == 1, 'Ready update is not checked or downloaded again'
+    screenshot('update-restart-ready.png')
+    click('[data-update-section] [data-action="restart-update"]')
+    click('[data-action="accept-app-dialog"]')
+    wait(lambda: execute('return window.__ternwayUpdateTest.restarts===1;'), 'restart action reaches save-barrier command')
+    wait(lambda: shown('[data-update-section] [data-action="restart-update"]'), 'cancelled shutdown keeps update ready')
+    click('.modal-settings [data-action="close-modal"]')
+    execute("window.__TAURI_INTERNALS__.invoke=window.__ternwayUpdateTest.original; localStorage.removeItem('ternway-update-restart'); delete window.__ternwayUpdateTest; return true;")
+    check('updater distinguishes installation from restart, retains readiness across navigation and windows, and honours cancellation')
+
     # Quit exercises the same all-window save barrier used by updater restart.
     execute("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('request_app_quit'),0); return true;")
     data_dir = root / "data" / "dev.elashri.ternway.ci"

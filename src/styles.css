@@ -766,3 +766,14 @@ h1 { margin-bottom: 0; font: 600 35px/1.05 var(--font-display); letter-spacing: 
 .theme-credits summary { cursor: pointer; }
 .theme-credits pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 10px/1.6 var(--mono); }
 @media (max-width: 460px) { .theme-grid { grid-template-columns: 1fr; } }
+
+.update-notice-host { flex: 0 0 auto; }
+.update-notice-host:empty { display: none; }
+.update-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; color: var(--ink); background: var(--accent-soft); border-bottom: 1px solid var(--line); font-size: 12px; }
+.update-notice span { min-width: 0; overflow-wrap: anywhere; }
+.update-notice .button { flex: 0 0 auto; }
+.update-steps { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 0; margin: 18px 0; list-style: none; counter-reset: update-step; }
+.update-steps li { counter-increment: update-step; color: var(--muted); font-size: 12px; }
+.update-steps li::before { content: counter(update-step) ". "; }
+.update-steps li.complete { color: var(--green-strong); }
+.update-steps li[aria-current] { color: var(--accent-strong); font-weight: 700; }
