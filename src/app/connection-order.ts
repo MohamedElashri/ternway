@@ -1,7 +1,8 @@
+import { folderPath } from "./connection-folders.ts";
 import type { ServerProfile } from "../types.ts";
 import { escapeHtml } from "./format.ts";
 
-const group = (server: ServerProfile): string => (server.groupName ?? "").normalize("NFKC").replace(/[\u200B-\u200D\uFEFF]/gu, "").trim().replace(/\s+/gu, " ").toLocaleLowerCase();
+const group = (server: ServerProfile): string => folderPath(server.groupName).toLocaleLowerCase();
 
 export function orderedConnections(servers: ServerProfile[], order: string[] = []): ServerProfile[] {
   const ranks = new Map(order.map((id, index) => [id, index]));

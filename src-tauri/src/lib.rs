@@ -23,6 +23,7 @@ mod quick;
 mod remote_edit;
 mod transfer_queue;
 mod connection_library;
+mod connection_folders;
 mod library_backup;
 mod remote_fs;
 mod sftp_wire;
@@ -269,6 +270,7 @@ fn get_state(state: State<'_, AppState>) -> Result<AppStateSnapshot, AppError> {
         version: APP_VERSION,
         servers: state.store.list_servers()?,
         connection_order: state.store.connection_order()?,
+        connection_folders: state.store.connection_folders()?,
         identities: state.store.list_identities()?,
         ssh_keys,
         ssh_config_entries,
@@ -310,11 +312,13 @@ fn delete_identity(state: State<'_, AppState>, identity_id: String) -> Result<()
 
 #[tauri::command(async)]
 fn set_connection_group(
+    app: AppHandle,
     state: State<'_, AppState>,
     server_ids: Vec<String>,
     group_name: String,
 ) -> Result<(), AppError> {
     state.store.set_connection_group(&server_ids, &group_name)?;
+    let _ = app.emit("library-changed", ());
     Ok(())
 }
 
@@ -1964,6 +1968,9 @@ pub fn run() {
             set_ssh_password,
             set_connection_group,
             connection_library::set_connection_order,
+            connection_folders::create_connection_folder,
+            connection_folders::rename_connection_folder,
+            connection_folders::delete_connection_folder,
             read_ssh_config,
             create_identity,
             find_onepassword_agent,

@@ -1,4 +1,5 @@
 import { orderedConnections } from "./connection-order";
+import { folderPath, renderConnectionFolders } from "./connection-folders";
 import { collapsedGroups } from "./connection-groups";
 import { unavailableToolReason } from "./navigation";
 import { icon } from "../icons";
@@ -120,23 +121,16 @@ export function filteredServers(): ServerProfile[] {
 }
 
 export function normalizedGroupName(groupName?: string): string {
-  return groupName?.normalize("NFKC").replace(/[\u200B-\u200D\uFEFF]/gu, "").trim().replace(/\s+/gu, " ") ?? "";
+  return folderPath(groupName);
 }
 
 export function groupKey(groupName?: string): string {
-  return (normalizedGroupName(groupName) || "Ungrouped").toLocaleLowerCase();
+  const path = normalizedGroupName(groupName);
+  return path ? `folder:${path.toLocaleLowerCase()}` : "ungrouped";
 }
 
 export function renderServerGroups(servers: ServerProfile[]): string {
-  const grouped = new Map<string, { label: string; servers: ServerProfile[] }>();
-  for (const server of servers) {
-    const label = normalizedGroupName(server.groupName) || "Ungrouped";
-    const key = groupKey(label);
-    const group = grouped.get(key) ?? { label, servers: [] };
-    group.servers.push(server);
-    grouped.set(key, group);
-  }
-  return [...grouped.values()].map(({ label, servers: items }) => `<details class="server-group" data-connection-group="${escapeHtml(groupKey(label))}" ${state.serverQuery || !collapsedGroups.has(groupKey(label)) ? "open" : ""}><summary class="server-group-label"><span class="group-label-full">${escapeHtml(label)}</span><span class="group-label-short" aria-hidden="true">${escapeHtml(shortGroupLabel(label))}</span><span class="group-count">${items.length}</span><button class="icon-button group-edit" data-action="rename-connection-group" data-group="${escapeHtml(groupKey(label))}" data-label="${escapeHtml(label === "Ungrouped" ? "" : label)}" aria-label="Move connections in ${escapeHtml(label)}" title="Rename or move group">${icon("edit")}</button></summary>${items.map(renderServerItem).join("")}</details>`).join("");
+  return renderConnectionFolders(servers, state.snapshot.connectionFolders ?? [], collapsedGroups, Boolean(state.serverQuery.trim()), renderServerItem);
 }
 
 export function shortGroupLabel(group: string): string {
@@ -150,10 +144,10 @@ export function renderServerRail(): string {
     <div class="server-rail-flyout">
       <div class="rail-brand"><span class="brand-mark">${icon("logo")}</span><span class="rail-brand-name">Ternway</span></div>
       <div class="sidebar-section server-section">
-        <div class="section-label-row"><span class="section-label">Connections</span><button class="icon-button" data-action="connection-order" aria-label="Reorder connections" title="Reorder connections">${icon("sort")}</button></div>
+        <div class="section-label-row"><span class="section-label">Connections</span><button class="icon-button" data-action="connection-order" aria-label="Reorder connections" title="Reorder connections">${icon("sort")}</button><button class="icon-button" data-action="connection-folders" aria-label="Organize connection folders" title="Organize folders">${icon("folder")}</button></div>
         <label class="sidebar-search"><span>${icon("search")}</span><input data-field="server-search" value="${escapeHtml(state.serverQuery)}" placeholder="Search connections…" aria-label="Search connections and notes"/><kbd>${platform === "macos" ? "⌘" : "Ctrl"} K</kbd></label>
         <div class="server-list">
-          ${servers.length ? renderServerGroups(servers) : `<div class="server-empty">${query ? "No matching connections" : "Add your first SSH connection"}</div>`}
+          ${servers.length || (!query && state.snapshot.connectionFolders?.length) ? renderServerGroups(servers) : `<div class="server-empty">${query ? "No matching connections" : "Add your first SSH connection"}</div>`}
         </div>
       </div>
       <div class="rail-utilities">

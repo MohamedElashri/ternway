@@ -747,3 +747,10 @@ h1 { margin-bottom: 0; font: 600 35px/1.05 var(--font-display); letter-spacing: 
 .connection-order-row > div:first-child { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
 .connection-order-row small { color: var(--muted); }
 .connection-order-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.folder-glyph .icon { width: 13px; height: 13px; }
+.connection-folder-contents { margin-left: 8px; border-left: 1px solid var(--line); padding-left: 5px; }
+.folder-manager-list { max-height: 260px; overflow: auto; }
+.folder-manager-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.folder-manager-row > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.folder-manager-row small { display: block; color: var(--muted); }
+.folder-manager-row > button { flex-shrink: 0; }

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Remove redundant OpenSSH terminal status explanations.
+- Reconnect live or disconnected sessions in the same terminal tab and split pane.
+- Save a custom connection order and organize connections in persistent nested folders.
+
 ## 0.3.1 - 2026-11-07
 
 - Reduce the header space above remote terminal sessions.

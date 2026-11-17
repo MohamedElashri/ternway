@@ -1,4 +1,5 @@
 import { movedConnectionOrder } from "./connection-order";
+import { folderPath } from "./connection-folders";
 import { openLibraryTools, applyBulkConnections, exportLibraryBackup, restoreLibraryBackup, retryEditRecovery } from "./library-tools";
 import { openTransferQueue, refreshTransferQueue, transferAction, runQueue } from "./transfer-queue";
 import { showToast } from "./toasts";
@@ -300,6 +301,33 @@ export async function runAction(action: string, target: HTMLElement = document.c
       } catch (error) { setError(error); }
       break;
     }
+    case "connection-folders": state.modal = "connection-folders"; render(); break;
+    case "create-connection-folder":
+    case "rename-connection-folder":
+    case "delete-connection-folder":
+    case "move-connection-folder": {
+      const returnToFolders = state.modal === "connection-folders";
+      try {
+        const path = target.dataset.folder ?? "";
+        if (action === "delete-connection-folder") {
+          if (!await confirm(`Remove “${path}” and its subfolders? All connections in these folders will move to Ungrouped.`, { title: "Remove folder", kind: "warning", confirmLabel: "Remove folder" })) break;
+          await invoke("delete_connection_folder", { path });
+        } else {
+          const moving = action === "move-connection-folder";
+          const server = moving ? state.snapshot.servers.find(s => s.id === target.dataset.connectionId) : undefined;
+          if (moving && !server) break;
+          const value = await requestTextInput({ title: moving ? "Move connection" : action === "create-connection-folder" ? "New folder" : "Rename or move folder", label: moving ? "Folder path (empty for Ungrouped)" : "Folder path (use / for nested folders)", defaultValue: server?.groupName ?? path, allowEmpty: moving, placeholder: "Work/Production" });
+          if (value === null) break;
+          const destination = folderPath(value);
+          if (moving) await invoke("set_connection_group", { serverIds: [server!.id], groupName: destination });
+          else if (action === "create-connection-folder") await invoke("create_connection_folder", { path: destination });
+          else await invoke("rename_connection_folder", { path, destination });
+        }
+        await refreshSnapshot(false); state.modal = "connection-folders"; render();
+      } catch (error) { setError(error); }
+      finally { if (returnToFolders && state.modal === null) { state.modal = "connection-folders"; render(); } }
+      break;
+    }
 
     case "rename-connection-group": {
       const ids = state.snapshot.servers.filter(s => groupKey(s.groupName) === target.dataset.group).map(s => s.id);
@@ -473,7 +501,7 @@ export function handleInput(event: Event): void {
     const list = root.querySelector<HTMLElement>(".server-list");
     if (list) {
       const servers = filteredServers();
-      list.innerHTML = servers.length ? renderServerGroups(servers) : `<div class="server-empty">${state.serverQuery.trim() ? "No matching servers" : "No servers saved yet"}</div>`;
+      list.innerHTML = servers.length || (!state.serverQuery.trim() && state.snapshot.connectionFolders?.length) ? renderServerGroups(servers) : `<div class="server-empty">${state.serverQuery.trim() ? "No matching servers" : "No servers saved yet"}</div>`;
     } else {
       render();
     }

@@ -20,6 +20,18 @@
 
 Remote features detect what each server supports instead of assuming a distribution or init system.
 
+## Organizing connections
+
+Use **Reorder connections** beside the sidebar heading to move saved connections up or down
+within their folder. The order is saved across restarts and included in library backups.
+**Use automatic order** restores sorting by favorites, recent use and name.
+
+Use **Organize folders** beside the Connections heading to create folders, move connections,
+or rename and move whole folders. Use paths such as `Work/Production` for nested folders.
+Folders can stay empty. Existing connection groups appear as folders automatically.
+Removing a folder moves its connections to Ungrouped. Folder organization is saved across
+restarts, shared between windows and included in library backups.
+
 ## Keybindings
 
 Ghostty's defaults on Linux and iTerm2's on macOS. Every other key goes to the shell.
@@ -210,7 +222,3 @@ omitted, the test uses SSH_AUTH_SOCK. The check enforces known_hosts, runs a fix
 read-only printf command, disconnects and removes its temporary profile store.
 A separate opt-in 1Password regression remains available. Protocol support does
 not guarantee support for every provider policy, key type or agent extension.
-
-Use **Reorder connections** beside the sidebar heading to move saved connections up or down
-within their group. The order is saved across restarts and included in library backups.
-**Use automatic order** restores sorting by favorites, recent use and name.
