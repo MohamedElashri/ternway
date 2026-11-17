@@ -277,8 +277,8 @@ Settings → Terminal provides controls for every supported config key, includin
 colors and palettes, clipboard behavior, shortcuts, environment variables, output triggers,
 window behavior, notifications, quick terminal and updates. Expand a group, edit values and
 choose **Save settings**. **Use inherited / default value** removes a local override when you
-save; included files then supply the value. New-shell options apply to new sessions and initial
-window dimensions apply on the next launch. Clipboard history and saved scrollback remain opt-in.
+save; included files then supply the value. Shell options apply to new sessions. Window
+preferences apply when saved; changing dimensions also resizes the current window. Clipboard history and saved scrollback remain opt-in.
 
 The same settings are readable and editable in `~/.config/ternway/config`. GUI saves preserve
 comments, unknown options and included Ghostty files. If an external editor changes the file

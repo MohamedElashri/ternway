@@ -19,7 +19,16 @@ def run(g):
 
     def set_value(key, contents):
         expand_groups()
-        g['type_into'](f'[data-config-key="{key}"]', str(contents))
+        lines = str(contents).split('\n')
+        selector = f'[data-config-key="{key}"]'
+        g['type_into'](selector, lines[0])
+        # WebKit drops literal LF in send-keys for ordinary textareas. Use the
+        # same Enter key a person uses, preserving the actual input path.
+        for line in lines[1:]:
+            g['request']('POST', f"/session/{g['session']}/actions", {'actions': [{'type': 'key', 'id': 'config-newline', 'actions': [{'type': 'keyDown', 'value': '\ue007'}, {'type': 'keyUp', 'value': '\ue007'}]}]})
+            if line:
+                target = g['element'](selector)
+                g['request']('POST', f"/session/{g['session']}/element/{target}/value", {'text': line})
 
     def save():
         g['click']('[data-form="config-settings"] button[type="submit"]')
