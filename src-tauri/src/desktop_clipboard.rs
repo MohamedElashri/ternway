@@ -5,6 +5,9 @@ use tauri::AppHandle;
 #[cfg(target_os = "linux")]
 fn clipboard() -> Result<gtk::Clipboard, String> {
     let display = gtk::gdk::Display::default().ok_or("Desktop display is unavailable")?;
+    if display.default_seat().is_none() {
+        return Err("Desktop clipboard requires an input seat".into());
+    }
     gtk::Clipboard::default(&display).ok_or_else(|| "Desktop clipboard is unavailable".into())
 }
 

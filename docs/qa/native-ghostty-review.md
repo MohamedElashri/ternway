@@ -13,7 +13,7 @@ The release remains v0.4.0; this review does not merge or publish it.
 | Paste | Browser-originated paste was silently discarded. | Route it through the same multiline confirmation and native bracketed-paste encoder as shortcut paste. Real PTY capture verifies exact bytes; cancelling confirmation sends nothing. |
 | Input methods | A final browser input event after compositionend could duplicate committed text. | Deduplicate the final commit. The native GUI test exercises both events and checks actual PTY UTF-8 bytes. |
 | Selection | Rapid select-all/copy could use an old cached selection. | Fetch selection from Ghostty at copy time, invalidate erased selections, and use native word-selection semantics. |
-| Wayland clipboard | The clipboard plugin fell back to X11 on compositors without privileged data-control support, so copying failed in pure Wayland. | Use the app's GTK display clipboard on Linux, with asynchronous reads on the main loop and bounded replies. Terminal and remote-tool copying share this path; live tests verify Unicode/multiline round trips and rapid copy on X11 and Wayland. |
+| Wayland clipboard | The clipboard plugin fell back to X11 on compositors without privileged data-control support, so copying failed in pure Wayland. | Use the app's GTK display clipboard on Linux, with asynchronous reads on the main loop and bounded replies. Missing input seats return an error before entering GTK clipboard code. Terminal and remote-tool copying share this path; live tests verify Unicode/multiline round trips and rapid copy on X11 and Wayland. |
 | Atomic drawing | DEC synchronized output was ignored; an abandoned hold needed recovery without blocking flow-control acknowledgments. | Capture the pre-hold frame in Ghostty's synchronous callback, acknowledge hidden output separately, and expire a hold after one second. Input modes remain current during a drawing hold. |
 | Scrollback | A partial bottom row made the scrollbar clamp and issue an unintended scroll, stopping output following. | Map the native row range to the exact widget range and cap enormous virtual pixel extents. A live 5 MiB flood exceeds the PTY backpressure threshold without losing following or deadlocking. |
 | Images | Multiple placements retransmitted the same pixels in one packet; deep-background images were hidden or drawn above explicit backgrounds. | Deduplicate pixel transfers and preserve all three native image layers, leaving default cells transparent over background images. Native and canvas regressions verify transfer count, explicit backgrounds and drawing order, following the [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/). |
@@ -40,6 +40,8 @@ production connections. It covers:
 - Corrupt queue recovery and opt-in styled history restored into dormant panes without starting a process.
 
 Screenshots and per-display checks are uploaded by the Native Linux GUI workflow.
+The Wayland compositor gets a virtual input seat from a private Xvfb backend; the
+app itself uses Wayland with DISPLAY unset, so it cannot fall back to X11 clipboard access.
 Frontend regressions, native Rust tests, SSH fixtures, lifecycle soak and macOS bundle/signature
 verification run separately in the platform workflow.
 

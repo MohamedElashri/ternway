@@ -43,8 +43,11 @@ output freezes drawing while separate acknowledgement/effect packets keep the PT
 input modes current. Abandoned render holds expire after one second, even without more output.
 Device replies,
 focus and mouse reports go directly to their originating PTY, independently of input broadcasting.
-OSC 52 clipboard writes and Kitty filesystem/shared-memory reads are disabled. Native compatibility
-adapters convert Sixel and iTerm2 inline images to Ghostty-owned Kitty placements; unsupported or
+OSC 52 clipboard writes and Kitty filesystem/shared-memory reads are disabled.
+Linux text clipboard commands use the GTK display on the main loop so copying works on Wayland
+compositors without privileged data-control support. Reads return asynchronously with a timeout;
+displays without an input seat report an error. Native compatibility adapters convert Sixel and
+iTerm2 inline images to Ghostty-owned Kitty placements; unsupported or
 oversized images are ignored. Normal-buffer snapshots retain styles and bounded history without
 restoring running processes or sending replies to a PTY. Scrollback limits are bytes (zero disables
 history), capped at 1 GB per pane; image storage is capped at 1 GB and individual compatibility
