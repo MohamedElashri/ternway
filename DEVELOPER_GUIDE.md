@@ -38,7 +38,10 @@ All Ghostty handles live on one dedicated thread; commands cross thread boundari
 bounded channel. The webview receives dirty cell rows, cursor/scrollbar state and image placements,
 and draws them on a canvas. There is no WebAssembly terminal engine or xterm.js dependency.
 
-The frontend acknowledges original PTY bytes after consuming each render packet. Device replies,
+The frontend acknowledges original PTY bytes after consuming each render packet. Synchronized
+output freezes drawing while separate acknowledgement/effect packets keep the PTY draining and
+input modes current. Abandoned render holds expire after one second, even without more output.
+Device replies,
 focus and mouse reports go directly to their originating PTY, independently of input broadcasting.
 OSC 52 clipboard writes and Kitty filesystem/shared-memory reads are disabled. Native compatibility
 adapters convert Sixel and iTerm2 inline images to Ghostty-owned Kitty placements; unsupported or
@@ -46,7 +49,9 @@ oversized images are ignored. Normal-buffer snapshots retain styles and bounded 
 restoring running processes or sending replies to a PTY. Scrollback limits are bytes (zero disables
 history), capped at 1 GB per pane; image storage is capped at 1 GB and individual compatibility
 images at 64 MB. Regex search uses Rust regex syntax, including Unicode and case options; lookaround
-and backreferences are unsupported. [Upstream VT API](https://lib.ghostty.org/vt/index.html).
+and backreferences are unsupported. Search scans are limited to 16 MiB of text and bounded time
+budgets; narrow the search or reduce scrollback if a limit is reached.
+[Upstream VT API](https://lib.ghostty.org/vt/index.html).
 
 ```text
 TypeScript frontend (src/app)

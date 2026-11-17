@@ -4,7 +4,7 @@ import { DEFAULT_HIGHLIGHT, type Trigger } from "./config";
 import { findPathCandidates, opensLink, type PathLinkOptions } from "./links";
 import { parseDirectoryReport } from "./shell-integration";
 import { matchTriggers } from "./triggers";
-import { drawGhostty, ghosttyModifiers, rowColumns, rowText, type GhosttyFrame, type Highlight } from "./ghostty-renderer";
+import { drawGhostty, ghosttyModifiers, rowColumns, rowText, scrollbarMetrics, type GhosttyFrame, type Highlight } from "./ghostty-renderer";
 
 export interface TerminalAppearance {
   theme: TerminalTheme; fontFamily: string; fontSize: number;
@@ -17,6 +17,7 @@ export interface TerminalSurfaceOptions {
   onSelection: () => void; onFocus: () => void; onInput: (data: string) => void;
   onResize: (cols: number, rows: number) => void; onAck: (bytes: number) => void; onClosed: (message: string) => void;
   onDirectory: (path: string, host: string) => void; onFinished: (command: { exitCode?: number }, seconds: number) => void;
+  onPaste: (text: string) => void;
 }
 interface SearchResult { resultIndex: number; resultCount: number; error?: string }
 
@@ -37,6 +38,10 @@ export class TerminalSurface {
   private frame: GhosttyFrame | undefined;
   private selected = "";
   private programmaticScrollTop = 0;
+  private pixelsPerScrollRow = 20;
+  private paintedScrollbarHeight = 0;
+  private paintedWidth = 0;
+  private scrollTarget: number | undefined;
   private selectionStart: [number, number] | undefined;
   private nativeButton: number | undefined;
   private cellWidth = 9; private cellHeight = 20;
@@ -45,6 +50,9 @@ export class TerminalSurface {
   private paintFrame: number | undefined;
   private ackTimer: number | undefined; private unacked = 0;
   private disposed = false; private composing = false;
+  private committedText: string | null = null;
+  private geometry = "";
+  private searchVersion = 0;
   private operations: Promise<unknown> = Promise.resolve();
   private readonly searchListeners = new Set<(result: SearchResult) => void>();
   private readonly scanned = new Set<string>();
@@ -80,32 +88,39 @@ export class TerminalSurface {
     this.input.addEventListener("keydown", event => this.key(event, false));
     this.input.addEventListener("keyup", event => this.key(event, true));
     this.input.addEventListener("compositionstart", () => { this.composing = true; });
-    this.input.addEventListener("compositionend", event => { this.composing = false; this.input.value = ""; this.sendInput({ kind: "key", code: "Unidentified", text: event.data, mods: 0, release: false, repeat: false }); });
+    this.input.addEventListener("compositionend", event => {
+      this.composing = false; this.input.value = ""; this.committedText = event.data;
+      if (event.data) this.sendInput({ kind: "key", code: "Unidentified", text: event.data, mods: 0, release: false, repeat: false });
+      window.setTimeout(() => { this.committedText = null; }, 0);
+    });
     this.input.addEventListener("input", () => {
       if (this.composing || !this.input.value) return;
       const text = this.input.value; this.input.value = "";
+      if (text === this.committedText) { this.committedText = null; return; }
       this.sendInput({ kind: "key", code: "Unidentified", text, mods: 0, release: false, repeat: false });
     });
-    // Browser paste is handled by the application's protected clipboard action.
-    this.input.addEventListener("paste", event => event.preventDefault());
+    this.input.addEventListener("paste", event => { event.preventDefault(); const text = event.clipboardData?.getData("text/plain"); if (text) options.onPaste(text); });
     this.input.addEventListener("focus", () => { options.onFocus(); this.host.classList.add("focused"); this.sendInput({ kind: "focus", focused: true }); });
     this.input.addEventListener("blur", () => { this.host.classList.remove("focused"); this.sendInput({ kind: "focus", focused: false }); });
     this.canvas.addEventListener("pointerdown", event => this.pointer(event, "press"));
     this.canvas.addEventListener("pointermove", event => this.pointer(event, "motion"));
     this.canvas.addEventListener("pointerup", event => this.pointer(event, "release"));
     this.canvas.addEventListener("pointercancel", event => { if (this.nativeButton !== undefined) this.mouse(event, "release", this.nativeButton); this.nativeButton = undefined; this.selectionStart = undefined; });
-    this.canvas.addEventListener("dblclick", event => { void this.selectWord(event); });
-    this.canvas.addEventListener("click", event => { if (opensLink(event)) void this.openLink(event); });
+    this.canvas.addEventListener("dblclick", event => { void this.selectWord(event).catch(() => undefined); });
+    this.canvas.addEventListener("click", event => { if (opensLink(event)) void this.openLink(event).catch(() => undefined); });
     this.host.addEventListener("wheel", event => {
       if (!this.frame) return; event.preventDefault();
       if (this.frame.mouse && !event.shiftKey) { this.mouse(event, "press", event.deltaY < 0 ? 3 : 4); }
       else if (this.frame.alternate) {
         for (let i = 0; i < Math.min(10, Math.max(1, Math.ceil(Math.abs(event.deltaY) / this.cellHeight))); i++) this.sendInput({ kind: "key", code: event.deltaY < 0 ? "ArrowUp" : "ArrowDown", text: null, mods: 0, release: false, repeat: false });
-      } else this.scrollTo(this.frame.offset + Math.sign(event.deltaY) * Math.max(1, Math.ceil(Math.abs(event.deltaY) / this.cellHeight)));
+      } else if (event.deltaY) this.scrollTo((this.scrollTarget ?? this.frame.offset) + Math.sign(event.deltaY) * Math.max(1, Math.ceil(Math.abs(event.deltaY) / this.cellHeight)));
     }, { passive: false });
     this.scrollbar.addEventListener("scroll", () => {
+      // Layout/zoom can clamp scrollTop before ResizeObserver delivers a new
+      // native frame. That is not a user request to stop following output.
+      if (this.host.hidden || this.scrollbar.clientHeight !== this.paintedScrollbarHeight || this.host.clientWidth !== this.paintedWidth) return;
       if (Math.abs(this.scrollbar.scrollTop - this.programmaticScrollTop) < 1) return;
-      const row = Math.round(this.scrollbar.scrollTop / this.cellHeight);
+      const row = Math.round(this.scrollbar.scrollTop / this.pixelsPerScrollRow);
       if (this.frame && row !== this.frame.offset) this.scrollTo(row);
     });
     this.configure(this.appearance);
@@ -116,10 +131,11 @@ export class TerminalSurface {
   get bracketedPaste(): boolean { return this.frame?.bracketedPaste ?? false; }
   private nativeAppearance(): object { return { ...this.appearance, cols: this.columns, rows: this.rowCount, imageStorageMb: Math.ceil(this.options.imageStorageMb) }; }
   /** Preserve input ordering even when one IPC round trip takes longer than another. */
-  private action<T = unknown>(action: object): Promise<T> {
+  private action<T = unknown>(action: object, current: () => boolean = () => true): Promise<T> {
     const task = this.operations.then(async () => {
       const id = await this.ready;
       if (this.disposed) throw new Error("Terminal closed");
+      if (!current()) throw new Error("Superseded search");
       return invoke<T>("ghostty_action", { id, action });
     });
     this.operations = task.catch(() => undefined);
@@ -145,25 +161,29 @@ export class TerminalSurface {
   setFontSize(size: number): void {
     const next = Math.min(72, Math.max(6, size)); if (next === this.fontSize) return;
     this.appearance = { ...this.appearance, fontSize: next }; this.scheduleFit(); this.schedulePaint();
+    this.host.style.fontSize = `${next}px`;
   }
   selectionText(trim: boolean): string { return trim ? this.selected.split("\n").map(line => line.trimEnd()).join("\n") : this.selected; }
+  async selectionTextNow(trim: boolean): Promise<string> { this.selected = await this.action<string>({ kind: "selectionText" }); return this.selectionText(trim); }
   paste(text: string): void { this.sendInput({ kind: "paste", text }); }
-  selectAll(): void { void this.action<string>({ kind: "selectAll" }).then(text => { this.selected = text; this.options.onSelection(); }); }
+  selectAll(): void { void this.action<string>({ kind: "selectAll" }).then(text => { if (!this.disposed) { this.selected = text; this.options.onSelection(); } }).catch(() => undefined); }
   write(text: string): void { this.quiet({ kind: "write", text }); }
   snapshot(lines: number): Promise<string> { return this.action({ kind: "snapshot", lines }); }
   recentText(lines = 2000): Promise<string> { return this.action({ kind: "text", lines }); }
   completionText(): Promise<{ beforeCursor: string; recent: string }> { return this.action({ kind: "completion" }); }
   jumpToPrompt(direction: -1 | 1): Promise<boolean> { return this.action({ kind: "jump", direction }); }
   async find(query: string, backwards: boolean, options: { caseSensitive?: boolean; regex?: boolean }): Promise<boolean> {
+    const version = ++this.searchVersion;
     try {
-      const result = await this.action<SearchResult>({ kind: "search", query, backwards, caseSensitive: options.caseSensitive ?? false, regex: options.regex ?? false });
+      const result = await this.action<SearchResult>({ kind: "search", query, backwards, caseSensitive: options.caseSensitive ?? false, regex: options.regex ?? false }, () => version === this.searchVersion);
+      if (version !== this.searchVersion) return false;
       for (const listener of this.searchListeners) listener(result);
       return result.resultCount > 0;
-    } catch (error) { for (const listener of this.searchListeners) listener({ resultIndex: -1, resultCount: 0, error: String(error).slice(0, 160) }); return false; }
+    } catch (error) { if (version === this.searchVersion) for (const listener of this.searchListeners) listener({ resultIndex: -1, resultCount: 0, error: String(error).slice(0, 160) }); return false; }
   }
-  clearSearch(): void { this.selected = ""; this.quiet({ kind: "clearSelection" }); }
+  clearSearch(): void { this.searchVersion++; this.selected = ""; this.quiet({ kind: "clearSelection" }); }
   focus(): void { this.input.focus({ preventScroll: true }); }
-  clear(): void { this.quiet({ kind: "clear" }); }
+  clear(): void { this.selected = ""; this.scanned.clear(); this.highlights.clear(); this.triggerMarks.clear(); this.quiet({ kind: "clear" }); }
   notice(text: string): void { this.write(`\r\n[${text}]\r\n`); }
   dispose(): void {
     if (this.disposed) return;
@@ -177,6 +197,11 @@ export class TerminalSurface {
     if (this.disposed) return;
     const bytes = new Uint8Array(message);
     if (bytes[0] === 1) { this.options.onClosed(new TextDecoder().decode(bytes.subarray(1))); return; }
+    if (bytes[0] === 3) {
+      const packet = JSON.parse(new TextDecoder().decode(bytes.subarray(1))) as GhosttyFrame;
+      if (this.frame) { this.frame.bracketedPaste = packet.bracketedPaste; this.frame.mouse = packet.mouse; this.frame.alternate = packet.alternate; }
+      this.consumeEffects(packet); return;
+    }
     if (bytes[0] !== 2) return;
     const patch = JSON.parse(new TextDecoder().decode(bytes.subarray(1))) as Omit<GhosttyFrame, "lines"> & { lines: (GhosttyFrame["lines"][number] | null)[] };
     const frame: GhosttyFrame = { ...patch, lines: patch.lines.map((row, index) => row ?? this.frame?.lines[index] ?? []) };
@@ -190,7 +215,13 @@ export class TerminalSurface {
       canvas.getContext("2d")!.putImageData(new ImageData(Uint8ClampedArray.from(raw, char => char.charCodeAt(0)), image.width, image.height), 0, 0);
       this.images.set(image.key, canvas);
     }
-    this.frame = frame; this.unacked += frame.ack;
+    if (!frame.hasSelection) this.selected = "";
+    if (frame.offset === this.scrollTarget) this.scrollTarget = undefined;
+    this.frame = frame; this.consumeEffects(frame);
+    this.scanTriggers(frame); this.schedulePaint();
+  }
+  private consumeEffects(frame: Pick<GhosttyFrame, "ack" | "effects">): void {
+    this.unacked += frame.ack;
     if (this.unacked >= 256 * 1024) this.flushAck();
     else if (this.unacked && this.ackTimer === undefined) this.ackTimer = window.setTimeout(() => this.flushAck(), 50);
     for (const effect of frame.effects) {
@@ -199,7 +230,6 @@ export class TerminalSurface {
       else if (effect.kind === "finished") this.options.onFinished({ exitCode: effect.exitCode }, effect.seconds ?? 0);
       else if (effect.kind === "bell") { this.host.classList.add("bell"); window.setTimeout(() => this.host.classList.remove("bell"), 120); }
     }
-    this.scanTriggers(frame); this.schedulePaint();
   }
   private flushAck(): void { window.clearTimeout(this.ackTimer); this.ackTimer = undefined; if (this.unacked) this.options.onAck(this.unacked); this.unacked = 0; }
   private scheduleFit(): void {
@@ -212,7 +242,9 @@ export class TerminalSurface {
       const cols = Math.max(2, Math.min(1000, Math.floor((this.host.clientWidth - 22) / this.cellWidth)));
       const rows = Math.max(2, Math.min(500, Math.floor(this.host.clientHeight / this.cellHeight)));
       const changed = cols !== this.columns || rows !== this.rowCount; this.columns = cols; this.rowCount = rows;
-      this.quiet({ kind: "resize", cols, rows, cellWidth: Math.max(1, Math.round(this.cellWidth)), cellHeight: this.cellHeight });
+      const cellWidth = Math.max(1, Math.round(this.cellWidth));
+      const geometry = `${cols}:${rows}:${cellWidth}:${this.cellHeight}`;
+      if (geometry !== this.geometry) { this.geometry = geometry; this.quiet({ kind: "resize", cols, rows, cellWidth, cellHeight: this.cellHeight }); }
       if (changed) this.options.onResize(cols, rows);
       this.schedulePaint();
     });
@@ -223,11 +255,15 @@ export class TerminalSurface {
   }
   private paint(): void {
     const frame = this.frame; if (!frame || this.disposed || this.host.hidden) return;
-    drawGhostty(this.canvas, frame, this.appearance.fontFamily, this.fontSize, this.cellWidth, this.cellHeight, this.appearance.theme.selectionBackground ?? "#264f78", this.images, this.highlights);
+    drawGhostty(this.canvas, frame, this.appearance.fontFamily, this.fontSize, this.cellWidth, this.cellHeight, this.appearance.theme.selectionBackground ?? "#264f78", this.images, this.highlights, this.appearance.theme.selectionForeground);
     this.accessible.replaceChildren(...frame.lines.map(row => { const line = document.createElement("div"); line.textContent = rowText(row).trimEnd(); return line; }));
-    this.scrollHeight.style.height = `${frame.total * this.cellHeight}px`;
-    this.programmaticScrollTop = frame.offset * this.cellHeight;
+    const scroll = scrollbarMetrics(frame.total, frame.rows, this.cellHeight, this.scrollbar.clientHeight);
+    this.pixelsPerScrollRow = scroll.pixelsPerRow;
+    this.scrollHeight.style.height = `${scroll.height}px`;
+    this.programmaticScrollTop = frame.offset * scroll.pixelsPerRow;
     this.scrollbar.scrollTop = this.programmaticScrollTop;
+    this.paintedScrollbarHeight = this.scrollbar.clientHeight;
+    this.paintedWidth = this.host.clientWidth;
     const cursor = frame.cursor;
     this.cursor.hidden = !cursor.visible || cursor.x === null || cursor.y === null;
     this.cursor.className = `ghostty-cursor ${cursor.style.toLowerCase()}${cursor.blink ? " blinking" : ""}`;
@@ -273,14 +309,10 @@ export class TerminalSurface {
     const rect = this.canvas.getBoundingClientRect();
     this.sendInput({ kind: "mouse", x: (event.clientX - rect.left) * this.canvas.clientWidth / rect.width, y: (event.clientY - rect.top) * this.canvas.clientHeight / rect.height, action, button, mods: ghosttyModifiers(event), buttons: Boolean(event.buttons), cellWidth: Math.max(1, Math.round(this.cellWidth)), cellHeight: this.cellHeight });
   }
-  private scrollTo(row: number): void { this.quiet({ kind: "scroll", row: Math.max(0, Math.min(Math.max(0, (this.frame?.total ?? 0) - this.rows), Math.round(row))) }); }
+  private scrollTo(row: number): void { const target = Math.max(0, Math.min(Math.max(0, (this.frame?.total ?? 0) - (this.frame?.rows ?? this.rows)), Math.round(row))); this.scrollTarget = target; this.quiet({ kind: "scroll", row: target }); }
   private async selectWord(event: MouseEvent): Promise<void> {
     if (this.frame?.mouse && !event.shiftKey) return;
-    const point = this.point(event); const row = this.frame?.lines[point[1] - (this.frame?.offset ?? 0)]; if (!row) return;
-    const text = rowText(row); const columns = rowColumns(row);
-    const word = [...text.matchAll(/[^\s]+/g)].find(match => columns[match.index!] <= point[0] && columns[match.index! + match[0].length - 1] >= point[0]);
-    if (!word) return;
-    this.selected = await this.action<string>({ kind: "select", start: [columns[word.index!], point[1]], end: [columns[word.index! + word[0].length - 1], point[1]], rectangle: false }); this.options.onSelection();
+    this.selected = await this.action<string>({ kind: "selectWord", point: this.point(event) }); if (!this.disposed) this.options.onSelection();
   }
   private async openLink(event: MouseEvent): Promise<void> {
     const [x, y] = this.point(event); const row = this.frame?.lines[y - (this.frame?.offset ?? 0)]; if (!row) return;

@@ -42,6 +42,7 @@ export function createTerminalSurface(tab: TerminalTab): TerminalSurface {
       rememberClipboard(text);
       void writeText(text).catch(() => undefined);
     },
+    onPaste: text => { void pasteWithProtection(surface, text).catch(setError); },
     onFocus: () => focusPane(tab.id, false),
     onOpenUrl: (url) => { void openUrl(url).catch(setError); },
     imageStorageMb: profileConfig(tab.profile).imageStorageLimit / 1_000_000,
@@ -869,8 +870,7 @@ export function runTerminalAction(action: KeyAction): boolean {
   if (!surface || !tab || !group) return false;
   switch (action) {
     case "copy_to_clipboard": {
-      const text = surface.selectionText(profileConfig(tab.profile).trimTrailingSpaces);
-      if (text) { rememberClipboard(text); void writeText(text).catch(setError); }
+      void surface.selectionTextNow(profileConfig(tab.profile).trimTrailingSpaces).then(text => { if (text) { rememberClipboard(text); return writeText(text); } }).catch(setError);
       return true;
     }
     case "paste_from_clipboard": void pasteFromClipboard(surface); return true;

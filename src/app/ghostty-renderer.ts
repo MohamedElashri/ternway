@@ -10,19 +10,27 @@ export interface GhosttyFrame {
   cursorScreenY: number; cursorX: number;
   images: GhosttyImage[];
   searchSpans: [number, number, number][];
+  hasSelection: boolean;
 }
-export interface GhosttyImage { key: string; data: string | null; width: number; height: number; x: number; y: number; offsetX: number; offsetY: number; drawWidth: number; drawHeight: number; sourceX: number; sourceY: number; sourceWidth: number; sourceHeight: number; above: boolean; z: number }
+export interface GhosttyImage { key: string; data: string | null; width: number; height: number; x: number; y: number; offsetX: number; offsetY: number; drawWidth: number; drawHeight: number; sourceX: number; sourceY: number; sourceWidth: number; sourceHeight: number; above: boolean; layer: "belowBackground" | "belowText" | "aboveText"; z: number }
 export interface Highlight { start: number; end: number; color: string }
+/** Match the native row range exactly, including the pane's fractional bottom row.
+ * Cap the virtual pixel extent below WebKit's CSS layout limit for huge histories. */
+export function scrollbarMetrics(total: number, rows: number, cellHeight: number, height: number): { height: number; pixelsPerRow: number } {
+  const range = Math.max(0, total - rows);
+  const pixelsPerRow = range ? Math.min(cellHeight, 8_000_000 / range) : cellHeight;
+  return { height: height + range * pixelsPerRow, pixelsPerRow };
+}
 /** Ghostty's modifier ABI (different from the numeric ANSI modifier parameter). */
-export function ghosttyModifiers(event: Pick<MouseEvent, "shiftKey" | "ctrlKey" | "altKey" | "metaKey">): number {
-  return (event.shiftKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.altKey ? 4 : 0) | (event.metaKey ? 8 : 0);
+export function ghosttyModifiers(event: Pick<MouseEvent, "shiftKey" | "ctrlKey" | "altKey" | "metaKey"> & Partial<Pick<KeyboardEvent, "getModifierState">>): number {
+  return (event.shiftKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.altKey ? 4 : 0) | (event.metaKey ? 8 : 0) | (event.getModifierState?.("CapsLock") ? 16 : 0) | (event.getModifierState?.("NumLock") ? 32 : 0);
 }
 export const rowText = (row: GhosttyCell[]): string => row.map(cell => cell.text).join("");
 /** UTF-16 offsets map back to native cell columns, including wide/combining graphemes. */
 export function rowColumns(row: GhosttyCell[]): number[] {
   return row.flatMap(cell => Array.from({ length: cell.text.length }, () => cell.x));
 }
-export function drawGhostty(canvas: HTMLCanvasElement, frame: GhosttyFrame, fontFamily: string, fontSize: number, cellWidth: number, cellHeight: number, selectionBackground: string, images: Map<string, HTMLCanvasElement>, highlights: Map<string, Highlight[]>): void {
+export function drawGhostty(canvas: HTMLCanvasElement, frame: GhosttyFrame, fontFamily: string, fontSize: number, cellWidth: number, cellHeight: number, selectionBackground: string, images: Map<string, HTMLCanvasElement>, highlights: Map<string, Highlight[]>, selectionForeground?: string): void {
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Terminal canvas is unavailable");
   const dpr = window.devicePixelRatio || 1;
@@ -33,19 +41,23 @@ export function drawGhostty(canvas: HTMLCanvasElement, frame: GhosttyFrame, font
   }
   context.setTransform(dpr, 0, 0, dpr, 0, 0);
   context.fillStyle = frame.background; context.fillRect(0, 0, width, height);
-  for (const [y, row] of frame.lines.entries()) for (const cell of row) {
-    const match = frame.searchSpans.some(([row, start, end]) => row === y + frame.offset && cell.x >= start && cell.x < end);
-    context.fillStyle = cell.flags & 128 ? selectionBackground : match ? "#44475a" : cell.bg;
-    context.fillRect(cell.x * cellWidth, y * cellHeight, cell.width * cellWidth, cellHeight);
-  }
-  const drawImages = (above: boolean): void => {
+  const drawImages = (layer: GhosttyImage["layer"]): void => {
     for (const placement of [...frame.images].sort((a, b) => a.z - b.z)) {
-      if (placement.above !== above) continue;
+      if (placement.layer !== layer) continue;
       const image = images.get(placement.key); if (!image) continue;
       context.drawImage(image, placement.sourceX, placement.sourceY, placement.sourceWidth, placement.sourceHeight, placement.x * cellWidth + placement.offsetX, placement.y * cellHeight + placement.offsetY, placement.drawWidth, placement.drawHeight);
     }
   };
-  drawImages(false);
+  drawImages("belowBackground");
+  for (const [y, row] of frame.lines.entries()) for (const cell of row) {
+    const match = frame.searchSpans.some(([row, start, end]) => row === y + frame.offset && cell.x >= start && cell.x < end);
+    // Deep-background Kitty images remain visible through default cells.
+    // Explicit backgrounds (even one matching the default), selection and search cover them.
+    if (!(cell.flags & (128 | 256)) && !match && cell.bg === frame.background) continue;
+    context.fillStyle = cell.flags & 128 ? selectionBackground : match ? "#44475a" : cell.bg;
+    context.fillRect(cell.x * cellWidth, y * cellHeight, cell.width * cellWidth, cellHeight);
+  }
+  drawImages("belowText");
   context.textBaseline = "alphabetic";
   for (const [y, row] of frame.lines.entries()) {
     for (const cell of row) {
@@ -55,7 +67,7 @@ export function drawGhostty(canvas: HTMLCanvasElement, frame: GhosttyFrame, font
       if (cell.flags & 8) continue;
       context.font = `${cell.flags & 2 ? "italic " : ""}${cell.flags & 1 ? "bold " : ""}${fontSize}px ${fontFamily}`;
       context.globalAlpha = cell.flags & 4 ? 0.5 : 1;
-      context.fillStyle = cell.fg;
+      context.fillStyle = cell.flags & 128 && selectionForeground ? selectionForeground : cell.fg;
       context.save(); context.beginPath(); context.rect(left, top, w, cellHeight); context.clip();
       context.fillText(cell.text, left, top + (cellHeight - fontSize) / 2 + fontSize * .8);
       context.restore();
@@ -65,5 +77,5 @@ export function drawGhostty(canvas: HTMLCanvasElement, frame: GhosttyFrame, font
       context.globalAlpha = 1;
     }
   }
-  drawImages(true);
+  drawImages("aboveText");
 }

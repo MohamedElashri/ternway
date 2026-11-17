@@ -4,7 +4,7 @@ use crate::pty_output::OutputChannel;
 use base64::Engine as _;
 use ghostty_vt::fmt::{Format, Formatter, FormatterOptions};
 use ghostty_vt::render::{CellIterator, RowIterator};
-use ghostty_vt::screen::{CellWide, TrackedGridRef};
+use ghostty_vt::screen::{CellWide, GridRef, TrackedGridRef};
 use ghostty_vt::selection::{FormatOptions, Selection};
 use ghostty_vt::style::{Palette, RgbColor, Underline};
 use ghostty_vt::terminal::{
@@ -13,7 +13,13 @@ use ghostty_vt::terminal::{
 use ghostty_vt::{Event, RenderState, Terminal, TerminalOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::HashMap, sync::mpsc, time::Duration};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    rc::Rc,
+    sync::mpsc,
+    time::{Duration, Instant},
+};
 use tauri::{ipc::InvokeResponseBody, State, WebviewWindow};
 #[path = "ghostty_images.rs"]
 mod images;
@@ -24,6 +30,19 @@ fn error(e: impl std::fmt::Display) -> String {
 }
 fn color(c: RgbColor) -> String {
     format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)
+}
+fn grapheme_text(grid: GridRef<'_>) -> Result<String> {
+    let mut chars = ['\0'; 32];
+    match grid.graphemes(&mut chars) {
+        Ok(0) => Ok(" ".into()),
+        Ok(n) => Ok(chars[..n].iter().collect()),
+        Err(ghostty_vt::Error::OutOfSpace { required }) if required <= 65536 => {
+            let mut chars = vec!['\0'; required];
+            let n = grid.graphemes(&mut chars).map_err(error)?;
+            Ok(chars[..n].iter().collect())
+        }
+        Err(reason) => Err(error(reason)),
+    }
 }
 fn rgb(value: &str) -> Option<RgbColor> {
     let value = value.strip_prefix('#')?;
@@ -85,6 +104,7 @@ struct Frame {
     cursor_x: u16,
     images: Vec<Value>,
     search_spans: Vec<[u32; 3]>,
+    has_selection: bool,
 }
 
 #[derive(Default)]
@@ -101,6 +121,8 @@ struct CommandMark {
     end: Option<TrackedGridRef>,
     started: Option<std::time::Instant>,
     exit_code: Option<i32>,
+    end_pending_wrap: bool,
+    output_pending_wrap: bool,
 }
 
 struct Engine {
@@ -116,6 +138,9 @@ struct Engine {
     search_index: usize,
     image_cache: std::collections::HashSet<String>,
     search_ranges: Vec<(PointCoordinate, PointCoordinate)>,
+    held_frame: Rc<RefCell<Option<Result<Frame>>>>,
+    hold_since: Rc<Cell<Option<Instant>>>,
+    force_full: Rc<Cell<bool>>,
 }
 impl Engine {
     fn new(appearance: Appearance) -> Result<Self> {
@@ -137,6 +162,30 @@ impl Engine {
         terminal
             .set_kitty_image_from_shared_mem_allowed(false)
             .map_err(error)?;
+        let held_frame = Rc::new(RefCell::new(None));
+        let hold_since = Rc::new(Cell::new(None));
+        let force_full = Rc::new(Cell::new(false));
+        let (held, since, full) = (held_frame.clone(), hold_since.clone(), force_full.clone());
+        terminal.set_render_hold(Some(Box::new(move |terminal, is_held| {
+            full.set(true);
+            if is_held {
+                since.set(Some(Instant::now()));
+                *held.borrow_mut() =
+                    Some(RenderState::new().map_err(error).and_then(|mut render| {
+                        Self::capture(
+                            terminal,
+                            &mut render,
+                            &mut Default::default(),
+                            0,
+                            vec![],
+                            false,
+                        )
+                    }));
+            } else {
+                since.set(None);
+                held.borrow_mut().take();
+            }
+        })));
         let mut engine = Self {
             terminal,
             render: RenderState::new().map_err(error)?,
@@ -149,6 +198,9 @@ impl Engine {
             search_index: 0,
             image_cache: Default::default(),
             search_ranges: Vec::new(),
+            held_frame,
+            hold_since,
+            force_full,
         };
         engine.configure(appearance)?;
         Ok(engine)
@@ -356,6 +408,8 @@ impl Engine {
                         end: None,
                         started: None,
                         exit_code: None,
+                        end_pending_wrap: false,
+                        output_pending_wrap: false,
                     });
                 }
             }
@@ -363,6 +417,8 @@ impl Engine {
                 if let Ok(output) = cursor() {
                     if let Some(mark) = self.marks.back_mut() {
                         mark.output = Some(output);
+                        mark.output_pending_wrap =
+                            self.terminal.is_cursor_pending_wrap().unwrap_or(false);
                         mark.started = Some(std::time::Instant::now());
                     }
                 }
@@ -371,6 +427,8 @@ impl Engine {
                 if let Ok(end) = cursor() {
                     if let Some(mark) = self.marks.back_mut() {
                         mark.end = Some(end);
+                        mark.end_pending_wrap =
+                            self.terminal.is_cursor_pending_wrap().unwrap_or(false);
                         mark.exit_code = fields.next().and_then(|v| v.parse::<i32>().ok());
                         if let Some(start) = mark.started.take() {
                             effects.push(json!({"kind":"finished","exitCode":mark.exit_code,"seconds":start.elapsed().as_secs_f64()}));
@@ -382,6 +440,9 @@ impl Engine {
         }
     }
     fn last_output(&self) -> Result<Option<String>> {
+        if self.terminal.active_screen().map_err(error)? == ghostty_vt::screen::Screen::Alternate {
+            return Ok(None);
+        }
         let Some(mark) = self
             .marks
             .iter()
@@ -390,7 +451,7 @@ impl Engine {
         else {
             return Ok(None);
         };
-        let Some(start) = mark
+        let Some(mut start) = mark
             .output
             .as_ref()
             .unwrap()
@@ -408,10 +469,17 @@ impl Engine {
         else {
             return Ok(None);
         };
-        if end == start {
+        if end == start && mark.end_pending_wrap == mark.output_pending_wrap {
             return Ok(Some(String::new()));
         }
-        if end.x == 0 {
+        if mark.output_pending_wrap {
+            start.x = 0;
+            start.y += 1;
+        }
+        if mark.end_pending_wrap {
+            // A full final row leaves the cursor on its last cell with wrap pending.
+            // The endpoint is inclusive in this state, including wide-character tails.
+        } else if end.x == 0 {
             end.y = end.y.saturating_sub(1);
             end.x = self.terminal.cols().map_err(error)? - 1;
         } else {
@@ -450,8 +518,7 @@ impl Engine {
             return Err("Search is too long".into());
         }
         if query.is_empty() {
-            self.search_ranges.clear();
-            self.terminal.set_selection(None).map_err(error)?;
+            self.clear_search()?;
             return Ok(json!({"resultIndex":-1,"resultCount":0}));
         }
         let expression = if regex {
@@ -459,17 +526,37 @@ impl Engine {
         } else {
             regex::escape(query)
         };
-        let pattern = regex::RegexBuilder::new(&expression)
+        let pattern = match regex::RegexBuilder::new(&expression)
             .case_insensitive(!case_sensitive)
             .size_limit(1024 * 1024)
             .build()
-            .map_err(error)?;
-        let (text, positions) = self.search_text()?;
-        let matches: Vec<_> = pattern
+        {
+            Ok(pattern) => pattern,
+            Err(reason) => {
+                self.clear_search()?;
+                return Err(error(reason));
+            }
+        };
+        let (text, positions) = match self.search_text() {
+            Ok(text) => text,
+            Err(reason) => {
+                self.clear_search()?;
+                return Err(reason);
+            }
+        };
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut matches = Vec::new();
+        for matched in pattern
             .find_iter(&text)
             .filter(|m| m.end() > m.start())
             .take(10000)
-            .collect();
+        {
+            if Instant::now() > deadline {
+                self.clear_search()?;
+                return Err("Search pattern is too expensive; narrow the expression".into());
+            }
+            matches.push(matched);
+        }
         self.search_ranges = matches
             .iter()
             .take(2000)
@@ -512,11 +599,15 @@ impl Engine {
         Ok(json!({"resultIndex":self.search_index,"resultCount":matches.len()}))
     }
     fn search_text(&self) -> Result<(String, Vec<PointCoordinate>)> {
+        let deadline = Instant::now() + Duration::from_secs(2);
         let mut text = String::new();
         let mut positions = Vec::new();
         let total = self.terminal.total_rows().map_err(error)?;
         let cols = self.terminal.cols().map_err(error)?;
         for y in 0..total {
+            if y % 64 == 0 && Instant::now() > deadline {
+                return Err("Search history is too large; reduce scrollback-limit".into());
+            }
             if text.len() > 16 * 1024 * 1024 {
                 return Err("Search history exceeds 16 MiB of text".into());
             }
@@ -538,13 +629,7 @@ impl Engine {
                 ) {
                     continue;
                 }
-                let mut chars = ['\0'; 32];
-                let count = grid.graphemes(&mut chars).map_err(error)?;
-                let value: String = if count == 0 {
-                    " ".into()
-                } else {
-                    chars[..count.min(chars.len())].iter().collect()
-                };
+                let value = grapheme_text(grid)?;
                 points.extend(std::iter::repeat_n(point, value.len()));
                 row.push_str(&value);
             }
@@ -565,8 +650,72 @@ impl Engine {
         }
         Ok((text, positions))
     }
+    fn clear_search(&mut self) -> Result<()> {
+        self.search_query.clear();
+        self.search_index = 0;
+        self.search_ranges.clear();
+        self.terminal.set_selection(None).map_err(error)?;
+        Ok(())
+    }
     fn frame(&mut self, ack: usize, effects: Vec<Value>, delta: bool) -> Result<Frame> {
-        let snapshot = self.render.update(&self.terminal).map_err(error)?;
+        let full = self.force_full.replace(false);
+        let mut frame = Self::capture(
+            &self.terminal,
+            &mut self.render,
+            &mut self.image_cache,
+            ack,
+            effects,
+            delta && !full,
+        )?;
+        self.decorate_frame(&mut frame)?;
+        Ok(frame)
+    }
+    fn decorate_frame(&self, frame: &mut Frame) -> Result<()> {
+        let mut search_spans = Vec::new();
+        for &(start, end) in &self.search_ranges {
+            for row in start.y.max(frame.offset as u32)
+                ..=end.y.min((frame.offset + frame.rows as u64) as u32)
+            {
+                search_spans.push([
+                    row,
+                    if row == start.y { start.x as u32 } else { 0 },
+                    if row == end.y {
+                        end.x as u32 + 1
+                    } else {
+                        frame.cols as u32
+                    },
+                ]);
+            }
+        }
+
+        frame.search_spans = search_spans;
+        frame.command_active = !self.marks.is_empty();
+        frame.marks = self
+            .marks
+            .iter()
+            .filter_map(|m| {
+                m.prompt
+                    .point(PointSpace::Screen)
+                    .ok()
+                    .flatten()
+                    .map(|p| json!({"row":p.y,"exitCode":m.exit_code}))
+            })
+            .collect();
+        if frame.alternate {
+            frame.command_active = false;
+            frame.marks.clear();
+        }
+        Ok(())
+    }
+    fn capture(
+        terminal: &Terminal,
+        render: &mut RenderState,
+        image_cache: &mut std::collections::HashSet<String>,
+        ack: usize,
+        effects: Vec<Value>,
+        delta: bool,
+    ) -> Result<Frame> {
+        let snapshot = render.update(terminal).map_err(error)?;
         let colors = snapshot.colors().map_err(error)?;
         let cursor = snapshot.cursor().map_err(error)?;
         let mut rows = RowIterator::new().map_err(error)?;
@@ -601,7 +750,8 @@ impl Engine {
                     text.push(' ');
                 }
                 let mut fg = cell.fg_color().map_err(error)?.unwrap_or(colors.foreground);
-                let mut bg = cell.bg_color().map_err(error)?.unwrap_or(colors.background);
+                let background = cell.bg_color().map_err(error)?;
+                let mut bg = background.unwrap_or(colors.background);
                 if style.inverse {
                     std::mem::swap(&mut fg, &mut bg);
                 }
@@ -613,12 +763,13 @@ impl Engine {
                     | u16::from(style.strikethrough) << 4
                     | u16::from(style.underline != Underline::None) << 5
                     | u16::from(style.overline) << 6
-                    | u16::from(selected) << 7;
+                    | u16::from(selected) << 7
+                    | u16::from(background.is_some() || style.inverse) << 8;
                 let width = if wide == CellWide::Wide { 2 } else { 1 };
                 // Keep cell boundaries for pointer hit testing and wide graphemes.
                 let link = if raw.has_hyperlink().map_err(error)? {
                     let mut uri = vec![0; 4096];
-                    self.terminal
+                    terminal
                         .grid_ref(Point::Viewport(PointCoordinate {
                             x,
                             y: lines.len() as u32,
@@ -645,10 +796,10 @@ impl Engine {
             }
             lines.push(Some(line));
         }
-        let bar = self.terminal.scrollbar().map_err(error)?;
+        let bar = terminal.scrollbar().map_err(error)?;
         let mut images = Vec::new();
         let mut visible_images = std::collections::HashSet::new();
-        let graphics = self.terminal.kitty_graphics().map_err(error)?;
+        let graphics = terminal.kitty_graphics().map_err(error)?;
         let mut image_iterator = ghostty_vt::render::ImageIterator::new().map_err(error)?;
         let mut placements = image_iterator.update(&snapshot).map_err(error)?;
         while let Some(placement) = placements.next() {
@@ -657,9 +808,9 @@ impl Engine {
                 continue;
             };
             let key = format!("{}:{}", p.image_id, p.image_generation);
-            visible_images.insert(key.clone());
+            let first_placement = visible_images.insert(key.clone());
             let mut data = Value::Null;
-            if !self.image_cache.contains(&key) {
+            if first_placement && !image_cache.contains(&key) {
                 use ghostty_vt::kitty::graphics::ImageFormat;
                 let pixels = image.data().map_err(error)?;
                 let rgba = match image.format().map_err(error)? {
@@ -681,23 +832,9 @@ impl Engine {
                 };
                 data = json!(base64::engine::general_purpose::STANDARD.encode(rgba));
             }
-            images.push(json!({"key":key,"data":data,"width":image.width().map_err(error)?,"height":image.height().map_err(error)?,"x":p.viewport_col,"y":p.viewport_row,"offsetX":p.cell_offset_x,"offsetY":p.cell_offset_y,"drawWidth":p.pixel_width,"drawHeight":p.pixel_height,"sourceX":p.source_x,"sourceY":p.source_y,"sourceWidth":p.source_width,"sourceHeight":p.source_height,"above":matches!(p.layer,ghostty_vt::render::ImageLayer::AboveText),"z":p.z}));
+            images.push(json!({"key":key,"data":data,"width":image.width().map_err(error)?,"height":image.height().map_err(error)?,"x":p.viewport_col,"y":p.viewport_row,"offsetX":p.cell_offset_x,"offsetY":p.cell_offset_y,"drawWidth":p.pixel_width,"drawHeight":p.pixel_height,"sourceX":p.source_x,"sourceY":p.source_y,"sourceWidth":p.source_width,"sourceHeight":p.source_height,"above":matches!(p.layer,ghostty_vt::render::ImageLayer::AboveText),"layer":match p.layer {ghostty_vt::render::ImageLayer::BelowBackground=>"belowBackground",ghostty_vt::render::ImageLayer::BelowText=>"belowText",_=>"aboveText"},"z":p.z}));
         }
-        self.image_cache = visible_images;
-        let mut search_spans = Vec::new();
-        for &(start, end) in &self.search_ranges {
-            for row in start.y.max(bar.offset as u32)..=end.y.min((bar.offset + bar.len) as u32) {
-                search_spans.push([
-                    row,
-                    if row == start.y { start.x as u32 } else { 0 },
-                    if row == end.y {
-                        end.x as u32 + 1
-                    } else {
-                        snapshot.cols().map_err(error)? as u32
-                    },
-                ]);
-            }
-        }
+        *image_cache = visible_images;
         let frame = Frame {
             cols: snapshot.cols().map_err(error)?,
             rows: snapshot.rows().map_err(error)?,
@@ -707,30 +844,21 @@ impl Engine {
             foreground: color(colors.foreground),
             offset: bar.offset,
             total: bar.total,
-            bracketed_paste: self.terminal.mode(Mode::BRACKETED_PASTE).map_err(error)?,
-            mouse: self.terminal.is_mouse_tracking().map_err(error)?,
-            alternate: self.terminal.active_screen().map_err(error)?
+            bracketed_paste: terminal.mode(Mode::BRACKETED_PASTE).map_err(error)?,
+            mouse: terminal.is_mouse_tracking().map_err(error)?,
+            alternate: terminal.active_screen().map_err(error)?
                 == ghostty_vt::screen::Screen::Alternate,
             ack,
             effects,
             row_ids,
-            marks: self
-                .marks
-                .iter()
-                .filter_map(|m| {
-                    m.prompt
-                        .point(PointSpace::Screen)
-                        .ok()
-                        .flatten()
-                        .map(|p| json!({"row":p.y,"exitCode":m.exit_code}))
-                })
-                .collect(),
-            command_active: !self.marks.is_empty(),
-            cursor_screen_y: self.terminal.scrollback_rows().map_err(error)?
-                + self.terminal.cursor_y().map_err(error)? as usize,
-            cursor_x: self.terminal.cursor_x().map_err(error)?,
+            marks: Vec::new(),
+            command_active: false,
+            cursor_screen_y: terminal.scrollback_rows().map_err(error)?
+                + terminal.cursor_y().map_err(error)? as usize,
+            cursor_x: terminal.cursor_x().map_err(error)?,
             images,
-            search_spans,
+            search_spans: Vec::new(),
+            has_selection: terminal.selection().map_err(error)?.is_some(),
         };
         snapshot.clean().map_err(error)?;
         Ok(frame)
@@ -789,6 +917,36 @@ struct Pane {
     pending_replies: Vec<u8>,
 }
 impl Pane {
+    fn expire_hold(&mut self) {
+        if self
+            .engine
+            .hold_since
+            .get()
+            .is_some_and(|start| start.elapsed() >= Duration::from_secs(1))
+        {
+            self.engine.hold_since.set(None);
+            self.engine.held_frame.borrow_mut().take();
+            self.engine.force_full.set(true);
+            if self
+                .engine
+                .terminal
+                .set_mode(Mode::SYNC_OUTPUT, false)
+                .is_ok()
+            {
+                if let Err(reason) = self.send(0, vec![]) {
+                    self.render_failed(&reason);
+                }
+            }
+        }
+    }
+    fn render_failed(&self, reason: &str) {
+        let mut bytes = vec![1];
+        bytes.extend(format!("Native terminal rendering failed: {reason}").as_bytes());
+        let _ = self.output.send(InvokeResponseBody::Raw(bytes));
+        if let Some((sessions, id)) = &self.route {
+            let _ = crate::terminal::close(sessions, id);
+        }
+    }
     fn send(&mut self, ack: usize, mut effects: Vec<Value>) -> Result<()> {
         effects.retain(|effect| {
             if effect["kind"] != "reply" {
@@ -807,7 +965,34 @@ impl Pane {
             }
             false
         });
-        let frame = self.engine.frame(ack, effects, true)?;
+        let frozen = self.engine.held_frame.borrow_mut().take();
+        let frame = if let Some(frozen) = frozen {
+            let mut frame = frozen?;
+            frame.ack = ack;
+            frame.effects = effects;
+            // Render holds freeze pixels, never input protocol state. In particular,
+            // stale bracketed-paste state must not bypass multiline confirmation.
+            frame.bracketed_paste = self
+                .engine
+                .terminal
+                .mode(Mode::BRACKETED_PASTE)
+                .map_err(error)?;
+            frame.mouse = self.engine.terminal.is_mouse_tracking().map_err(error)?;
+            frame.alternate = self.engine.terminal.active_screen().map_err(error)?
+                == ghostty_vt::screen::Screen::Alternate;
+            self.engine.decorate_frame(&mut frame)?;
+            frame
+        } else if self.engine.hold_since.get().is_some() {
+            let payload = json!({"ack":ack,"effects":effects,"bracketedPaste":self.engine.terminal.mode(Mode::BRACKETED_PASTE).map_err(error)?,"mouse":self.engine.terminal.is_mouse_tracking().map_err(error)?,"alternate":self.engine.terminal.active_screen().map_err(error)?==ghostty_vt::screen::Screen::Alternate});
+            let mut bytes = vec![3];
+            bytes.extend(serde_json::to_vec(&payload).map_err(error)?);
+            return self
+                .output
+                .send(InvokeResponseBody::Raw(bytes))
+                .map_err(error);
+        } else {
+            self.engine.frame(ack, effects, true)?
+        };
         let mut bytes = vec![2];
         bytes.extend(serde_json::to_vec(&frame).map_err(error)?);
         self.output
@@ -828,8 +1013,25 @@ impl Default for EngineService {
             .name("libghostty-vt".into())
             .spawn(move || {
                 let mut panes = HashMap::new();
-                while let Ok(job) = receiver.recv() {
-                    job(&mut panes);
+                loop {
+                    let next = if panes
+                        .values()
+                        .any(|p: &Pane| p.engine.hold_since.get().is_some())
+                    {
+                        receiver.recv_timeout(Duration::from_millis(20))
+                    } else {
+                        receiver
+                            .recv()
+                            .map_err(|_| mpsc::RecvTimeoutError::Disconnected)
+                    };
+                    match next {
+                        Ok(job) => job(&mut panes),
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                    for pane in panes.values_mut() {
+                        pane.expire_hold();
+                    }
                 }
             })
             .expect("create native terminal engine thread");
@@ -863,7 +1065,9 @@ impl EngineService {
                         if let Some(pane) = panes.get_mut(&id) {
                             if bytes.first() == Some(&0) {
                                 let effects = pane.engine.write(&bytes[1..], true);
-                                let _ = pane.send(bytes.len() - 1, effects);
+                                if let Err(reason) = pane.send(bytes.len() - 1, effects) {
+                                    pane.render_failed(&reason);
+                                }
                             } else {
                                 let _ = pane.output.send(InvokeResponseBody::Raw(bytes));
                             }
@@ -971,6 +1175,10 @@ pub(crate) enum Action {
         rectangle: bool,
     },
     SelectAll,
+    SelectWord {
+        point: [u32; 2],
+    },
+    SelectionText,
     ClearSelection,
     Key {
         code: String,
@@ -1053,7 +1261,39 @@ pub(crate) fn ghostty_action(
             }
             Action::Scroll { row } => engine.terminal.scroll_viewport(ScrollViewport::Row(row)),
             Action::Clear => {
+                engine.clear_search()?;
                 effects = engine.write(b"\x18\x1b[3J\x1b[H\x1b[2J", false);
+            }
+            Action::SelectionText => {
+                return Ok(json!(engine
+                    .terminal
+                    .format_selection_alloc(FormatOptions::new().with_unwrap(true))
+                    .map_err(error)?
+                    .map(|b| String::from_utf8_lossy(&b).into_owned())
+                    .unwrap_or_default()))
+            }
+            Action::SelectWord { point } => {
+                let grid = engine
+                    .terminal
+                    .grid_ref(Point::Screen(PointCoordinate {
+                        x: point[0].min(999) as u16,
+                        y: point[1],
+                    }))
+                    .map_err(error)?;
+                let selection = engine
+                    .terminal
+                    .select_word(ghostty_vt::selection::SelectWordOptions::new(grid))
+                    .map_err(error)?;
+                engine
+                    .terminal
+                    .set_selection(selection.as_ref())
+                    .map_err(error)?;
+                result = json!(engine
+                    .terminal
+                    .format_selection_alloc(FormatOptions::new().with_unwrap(true))
+                    .map_err(error)?
+                    .map(|b| String::from_utf8_lossy(&b).into_owned())
+                    .unwrap_or_default());
             }
             Action::Text { lines } => {
                 return engine
@@ -1102,8 +1342,7 @@ pub(crate) fn ghostty_action(
                     .unwrap_or_default());
             }
             Action::ClearSelection => {
-                engine.search_ranges.clear();
-                engine.terminal.set_selection(None).map_err(error)?;
+                engine.clear_search()?;
             }
             Action::Search {
                 query,
@@ -1128,13 +1367,7 @@ pub(crate) fn ghostty_action(
                     ) {
                         continue;
                     }
-                    let mut chars = ['\0'; 32];
-                    let n = grid.graphemes(&mut chars).map_err(error)?;
-                    if n == 0 {
-                        before.push(' ');
-                    } else {
-                        before.extend(&chars[..n.min(chars.len())]);
-                    }
+                    before.push_str(&grapheme_text(grid)?);
                 }
                 return Ok(
                     json!({"beforeCursor":before,"recent":engine.text(Format::Plain,2000)?}),
@@ -1196,6 +1429,11 @@ pub(crate) fn ghostty_action(
                 return Ok(json!(""));
             }
             Action::Jump { direction } => {
+                if engine.terminal.active_screen().map_err(error)?
+                    == ghostty_vt::screen::Screen::Alternate
+                {
+                    return Ok(json!(false));
+                }
                 let offset = engine.terminal.scrollbar().map_err(error)?.offset as u32;
                 let mut lines: Vec<u32> = engine
                     .marks
@@ -1260,7 +1498,9 @@ pub(crate) fn ghostty_action(
                     .keys
                     .encode_to_vec(&event, &mut bytes)
                     .map_err(error)?;
-                engine.terminal.scroll_viewport(ScrollViewport::Bottom);
+                if !release && !bytes.is_empty() {
+                    engine.terminal.scroll_viewport(ScrollViewport::Bottom);
+                }
                 result = json!(String::from_utf8_lossy(&bytes));
             }
             Action::Paste { text } => {
@@ -1294,7 +1534,10 @@ pub(crate) fn ghostty_action(
             }
             Action::Dispose => unreachable!(),
         }
-        pane.send(0, effects)?;
+        if let Err(reason) = pane.send(0, effects) {
+            pane.render_failed(&reason);
+            return Err(reason);
+        }
         Ok(result)
     })
 }
@@ -1484,6 +1727,139 @@ fn key_code(code: &str) -> ghostty_vt::key::Key {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn review_search_reopens_from_first_match_and_invalid_regex_clears_selection() {
+        let mut engine = engine(80);
+        engine.write(b"one one one", true);
+        assert_eq!(
+            engine.find("one", false, false, false).unwrap()["resultIndex"],
+            0
+        );
+        engine.find("", false, false, false).unwrap();
+        assert_eq!(
+            engine.find("one", false, false, false).unwrap()["resultIndex"],
+            0
+        );
+        assert!(engine.find("[", false, true, false).is_err());
+        assert!(engine.search_ranges.is_empty());
+        assert!(engine.terminal.selection().unwrap().is_none());
+    }
+    #[test]
+    fn review_copy_output_keeps_a_last_column_character() {
+        let mut engine = engine(20);
+        engine.write(
+            b"\x1b]133;A\x07$ command\r\n\x1b]133;C\x0712345678901234567890\x1b]133;D;0\x07",
+            true,
+        );
+        assert_eq!(
+            engine.last_output().unwrap().as_deref(),
+            Some("12345678901234567890")
+        );
+        let mut one = self::engine(20);
+        one.write(
+            b"\x1b]133;A\x07abcdefghijklmnopqrs\x1b]133;C\x07X\x1b]133;D;0\x07",
+            true,
+        );
+        assert_eq!(one.last_output().unwrap().as_deref(), Some("X"));
+        one.write(b"\x1b[?1049hPRIVATE_EDITOR", true);
+        assert_eq!(one.last_output().unwrap(), None);
+    }
+    #[test]
+    fn review_search_preserves_long_combining_graphemes() {
+        let mut engine = engine(80);
+        let text = format!("a{}", "\u{301}".repeat(40));
+        engine.write(text.as_bytes(), true);
+        assert_eq!(
+            engine.find(&text, true, false, false).unwrap()["resultCount"],
+            1
+        );
+    }
+    #[test]
+    fn review_render_hold_is_atomic_acked_and_times_out() {
+        use std::sync::{Arc, Mutex};
+        let packets = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
+        let captured = packets.clone();
+        let mut pane = Pane {
+            owner: "review".into(),
+            engine: engine(80),
+            output: OutputChannel::new(move |body| {
+                if let InvokeResponseBody::Raw(bytes) = body {
+                    captured.lock().unwrap().push(bytes);
+                }
+                Ok(())
+            }),
+            route: None,
+            pending_replies: vec![],
+        };
+        let effects = pane
+            .engine
+            .write(b"\x1b[?2004hBEFORE\x1b[?2026h\x1b[?2004l\rAFTER", true);
+        pane.send(42, effects).unwrap();
+        let first = packets.lock().unwrap()[0].clone();
+        assert_eq!(first[0], 2);
+        let frame: Value = serde_json::from_slice(&first[1..]).unwrap();
+        let text = frame["lines"][0]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["text"].as_str().unwrap())
+            .collect::<String>();
+        assert!(text.starts_with("BEFORE"));
+        assert_eq!(frame["bracketedPaste"], false);
+        assert_eq!(frame["ack"], 42);
+        let effects = pane.engine.write(b" hidden", true);
+        pane.send(7, effects).unwrap();
+        let held = packets.lock().unwrap()[1].clone();
+        assert_eq!(held[0], 3);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&held[1..]).unwrap()["ack"],
+            7
+        );
+        pane.engine
+            .hold_since
+            .set(Some(Instant::now() - Duration::from_secs(2)));
+        pane.expire_hold();
+        assert!(!pane.engine.terminal.mode(Mode::SYNC_OUTPUT).unwrap());
+        let final_frame = packets.lock().unwrap().last().unwrap().clone();
+        assert_eq!(final_frame[0], 2);
+        let frame: Value = serde_json::from_slice(&final_frame[1..]).unwrap();
+        assert!(frame["lines"][0]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["text"].as_str().unwrap())
+            .collect::<String>()
+            .starts_with("AFTER hidden"));
+    }
+    #[test]
+    fn review_explicit_backgrounds_remain_distinct_from_default_cells() {
+        let mut engine = engine(80);
+        engine.write(b"A\x1b[40mB\x1b[0mC", true);
+        let frame = engine.frame(0, vec![], false).unwrap();
+        let row = frame.lines[0].as_ref().unwrap();
+        assert_eq!(row[0].flags & 256, 0);
+        assert_ne!(row[1].flags & 256, 0);
+        assert_eq!(row[2].flags & 256, 0);
+    }
+    #[test]
+    fn review_image_pixels_are_sent_once_for_multiple_placements() {
+        let mut engine = engine(80);
+        engine.terminal.resize(80, 24, 9, 20).unwrap();
+        engine.write(
+            b"\x1b_Ga=T,f=32,s=1,v=1,i=77,p=1;/wAA/w==\x1b\\\x1b_Ga=p,i=77,p=2;\x1b\\",
+            true,
+        );
+        let frame = engine.frame(0, vec![], false).unwrap();
+        assert_eq!(frame.images.len(), 2);
+        assert_eq!(
+            frame
+                .images
+                .iter()
+                .filter(|image| !image["data"].is_null())
+                .count(),
+            1
+        );
+    }
     fn engine(cols: u16) -> Engine {
         Engine::new(Appearance {
             cols,
