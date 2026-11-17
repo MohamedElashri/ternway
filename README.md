@@ -66,7 +66,8 @@ See the [developer guide](DEVELOPER_GUIDE.md) for dependencies, architecture and
 Use **Ternway → Check for updates…** on macOS, **Help → Check for updates…** on Linux,
 or the button in **About Ternway**. Settings → Updates and the command palette offer the
 same flow: check GitHub releases, read the release notes, download and install a signed update,
-then restart when you’re ready. Restarting ends active terminal sessions. Source and development
+then choose **Restart to finish** when you’re ready. A workspace reminder stays visible after
+installation until you restart. Restarting ends active terminal sessions. Source and development
 builds link to release downloads instead of replacing themselves.
 
 ## About Ternway

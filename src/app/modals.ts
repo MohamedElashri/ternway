@@ -65,7 +65,7 @@ export function renderModal(): string {
   if (state.modal === "ssh-import") return renderSshImportModal();
   if (state.modal === "identities") return renderIdentitiesModal();
   if (state.modal === "about") return renderModalShell("About Ternway", "A desktop workspace for local and remote development.", renderAboutContent(), "modal-about");
-  if (state.modal === "updates") return renderModalShell("Software update", "Get the latest Ternway release from GitHub.", `<div class="modal-body">${renderUpdateSection(true)}<div class="modal-actions"><button class="button button-quiet" data-action="close-modal">Done</button></div></div>`, "modal-updates");
+  if (state.modal === "updates") return renderModalShell("Software update", "Get the latest Ternway release from GitHub.", `<div class="modal-body">${renderUpdateSection(true)}<div class="modal-actions"><button class="button button-quiet" data-action="close-modal">Close</button></div></div>`, "modal-updates");
   if (state.modal === "security") return renderSecurityModal();
   if (state.modal === "ssh-password") return renderSshPasswordModal();
   if (state.modal === "master-password") return renderMasterPasswordModal();

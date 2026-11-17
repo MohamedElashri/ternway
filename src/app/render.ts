@@ -1,3 +1,5 @@
+import { renderUpdateNotice } from "./update-view";
+import { updates } from "./updater";
 import { orderedConnections } from "./connection-order";
 import { folderPath, renderConnectionFolders } from "./connection-folders";
 import { settingsFocusKey, restoreSettingsFocus } from "./settings-pages";
@@ -99,6 +101,7 @@ export function renderShell(): string {
     ${isLocalWorkspace() ? "" : renderSidebar()}
     <main class="main-area">
       ${renderTabBar()}
+      <div class="update-notice-host" data-update-notice>${renderUpdateNotice(updates.state)}</div>
       ${isLocalWorkspace()
         ? `<section class="content-area content-area-local">${state.errorMessage ? `<div class="local-error">${renderInlineError()}</div>` : ""}${renderTerminal()}</section>`
         : dockShown()
@@ -202,7 +205,6 @@ export function renderSidebar(): string {
 function renderSidebarBottom(): string {
   return `<div class="sidebar-bottom">
       <button class="utility-link" data-action="credential-settings">${icon("settings")} Settings</button>
-      <button class="icon-button sidebar-theme-toggle" data-action="theme" aria-label="${state.darkMode ? "Switch to light appearance" : "Switch to dark appearance"}" title="${state.darkMode ? "Switch to light appearance" : "Switch to dark appearance"}">${icon(state.darkMode ? "sun" : "moon")}</button>
     </div>`;
 }
 

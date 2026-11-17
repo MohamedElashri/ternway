@@ -145,6 +145,11 @@ ssh_config.write_text(f"Host ci-loopback\n HostName 127.0.0.1\n User qa\n Port {
 try:
     wait(lambda: request("GET", "/status") is not None, "driver startup")
     start()
+    def check_startup_size():
+        size = execute("return {width:window.innerWidth,height:window.innerHeight};")
+        assert 1100 <= size['width'] <= 1440 and 700 <= size['height'] <= 900, size
+    check_startup_size()
+    check('fresh native window opens at its configured usable size')
     textarea = wait(lambda: element('.xterm-helper-textarea'), "local terminal")
     # The marker is encoded in the command so shell echo cannot satisfy this assertion.
     expected = "CI_NATIVE_λ_漢字"
@@ -215,6 +220,7 @@ try:
     wait(lambda: execute("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#22272e';"), 'dimmed palette restored')
     check('all built-in themes apply live without losing terminal output and preserve explicit config colors')
     click('[data-action="close-modal"]')
+    assert execute("return document.querySelectorAll('[data-action=theme]').length;") == 1
     click('[data-action="theme"]')
     if execute("return document.querySelector('[data-theme]')?.dataset.theme;") != "dark":
         click('[data-action="theme"]')
@@ -341,6 +347,7 @@ try:
     system_disk = execute("return Array.from(document.querySelectorAll('.stat-card')).find(el=>el.textContent.includes('System disk'))?.textContent;")
     assert '25%' in system_disk and 'free on /' in system_disk and '/run' not in system_disk, system_disk
     check('real SSH host-key review, rejected-password recovery and root-filesystem overview')
+    assert execute("return document.querySelectorAll('[data-action=theme]').length;") == 1, 'Remote sidebar must not duplicate the global theme toggle'
     click('.nav-item[data-view="terminal"]')
     wait(lambda: execute("return document.querySelector('.terminal-layer')?.textContent.includes('fixture-terminal-ready');"), 'interactive SSH terminal output')
     def remote_input(text):
@@ -448,7 +455,85 @@ try:
     click('[data-action="close-modal"]')
     invoke("new_workspace_window", layoutId=layout["id"])
     wait(lambda: len(request("GET", f"/session/{session}/window/handles")) >= 2, "second ordinary window")
-    check("named layout opens in another native window")
+    original_handle = request('GET', f'/session/{session}/window')
+    for handle in request('GET', f'/session/{session}/window/handles'):
+        request('POST', f'/session/{session}/window', {'handle':handle})
+        check_startup_size()
+    request('POST', f'/session/{session}/window', {'handle':original_handle})
+    check("named layout opens in another native window at a usable size")
+
+    # Exercise the shipped JS updater and real UI with a simulated IPC installer.
+    # No release download, package-manager command, or real restart runs here.
+    update_handle = request('GET', f'/session/{session}/window')
+    other_handle = next(handle for handle in request('GET', f'/session/{session}/window/handles') if handle != update_handle)
+    request('POST', f'/session/{session}/window', {'handle':other_handle})
+    wait(lambda: shown('[data-action="credential-settings"]'), 'other window bootstrap before shared update notice')
+    request('POST', f'/session/{session}/window', {'handle':update_handle})
+    execute("""
+      const original = window.fetch;
+      const fake = window.__ternwayUpdateTest = { original, checks:0, restarts:0 };
+      const reply = (value, ok=true) => new Response(JSON.stringify(value), {headers:{'Content-Type':'application/json','Tauri-Response':ok?'ok':'error'}});
+      // Tauri's invoke and IPC properties are immutable in a real webview.
+      // Intercept the standard fetch transport instead of assigning to them.
+      window.fetch = async (input, options) => {
+        const url = new URL(typeof input==='string'?input:input.url);
+        if(url.protocol!=='ipc:') return original(input,options);
+        const command = decodeURIComponent(url.pathname.slice(1));
+        if(!['app_metadata','plugin:updater|check','plugin:updater|download','plugin:updater|install','plugin:resources|close','request_app_restart'].includes(command)) return original(input,options);
+        const args = JSON.parse(options.body);
+        if(command==='app_metadata') {
+          const response = await original(input,options);
+          return reply({...await response.json(),updateUnsupportedReason:''});
+        }
+        if(command==='plugin:updater|check') { fake.checks++; return reply({rid:2140001,currentVersion:'0.3.2',version:'99.0.0-test',body:'Simulated update for native UI coverage'}); }
+        if(command==='plugin:updater|download') {
+          const channel = Number(args.onEvent.split(':')[1]);
+          [{event:'Started',data:{contentLength:10}},{event:'Progress',data:{chunkLength:10}},{event:'Finished'}].forEach((message,index)=>window.__TAURI_INTERNALS__.runCallback(channel,{index,message}));
+          window.__TAURI_INTERNALS__.runCallback(channel,{index:3,end:true});
+          return reply(2140002);
+        }
+        if(command==='plugin:updater|install') return new Promise(resolve=>{fake.finishInstall=()=>resolve(reply(null));});
+        if(command==='plugin:resources|close' && [2140001,2140002].includes(args.rid)) return reply(null);
+        if(command==='request_app_restart') { fake.restarts++; return reply('Restart cancelled; all windows remain open',false); }
+        return original(input,options);
+      };
+      return true;
+    """)
+    if shown('.backdrop [data-action="close-modal"]'):
+        click('.backdrop [data-action="close-modal"]')
+    click('[data-action="credential-settings"]')
+    click('[data-settings-page="updates"]')
+    click('[data-update-section] [data-action="check-updates"]')
+    wait(lambda: shown('[data-action="install-update"]'), 'simulated update available')
+    click('[data-action="install-update"]')
+    wait(lambda: execute("return typeof window.__ternwayUpdateTest.finishInstall==='function';"), 'installer is pending')
+    assert not shown('[data-action="restart-update"]'), 'No restart before installation completes'
+    assert execute("return document.querySelector('[aria-current=step]')?.textContent;") == 'Install'
+    screenshot('update-installing.png')
+    click('.modal-updates [data-action="close-modal"]')
+    assert shown('[data-update-notice] [data-action="check-updates"]'), 'Background update details stay accessible'
+    execute("window.__ternwayUpdateTest.finishInstall(); return true;")
+    wait(lambda: shown('[data-update-notice] [data-action="restart-update"]'), 'persistent restart-to-finish notice')
+    assert execute("return JSON.parse(localStorage.getItem('ternway-update-restart')).version;") == '99.0.0-test'
+    request('POST', f'/session/{session}/window', {'handle':other_handle})
+    wait(lambda: shown('[data-update-notice] [data-action="restart-update"]'), 'other window receives restart readiness')
+    request('POST', f'/session/{session}/window', {'handle':update_handle})
+    click('[data-update-notice] [data-action="restart-update"]')
+    click('[data-action="cancel-app-dialog"]')
+    assert execute('return window.__ternwayUpdateTest.restarts;') == 0, 'Cancel leaves active terminals running'
+    click('[data-action="credential-settings"]')
+    click('[data-settings-page="updates"]')
+    wait(lambda: shown('[data-update-section] [data-action="restart-update"]'), 'restart readiness survives settings navigation')
+    assert not shown('[data-action="install-update"]')
+    assert execute('return window.__ternwayUpdateTest.checks;') == 1, 'Ready update is not checked or downloaded again'
+    screenshot('update-restart-ready.png')
+    click('[data-update-section] [data-action="restart-update"]')
+    click('[data-action="accept-app-dialog"]')
+    wait(lambda: execute('return window.__ternwayUpdateTest.restarts===1;'), 'restart action reaches save-barrier command')
+    wait(lambda: shown('[data-update-section] [data-action="restart-update"]'), 'cancelled shutdown keeps update ready')
+    click('.modal-settings [data-action="close-modal"]')
+    execute("window.fetch=window.__ternwayUpdateTest.original; localStorage.removeItem('ternway-update-restart'); delete window.__ternwayUpdateTest; return true;")
+    check('updater distinguishes installation from restart, retains readiness across navigation and windows, and honours cancellation')
 
     # Quit exercises the same all-window save barrier used by updater restart.
     execute("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('request_app_quit'),0); return true;")
@@ -468,6 +553,7 @@ try:
     session = None
     (data_dir / "transfers.json").write_text("damaged test queue")
     start()
+    check_startup_size()
     assert execute("return document.querySelector('#app').dataset.colorTheme;") == 'github-dark-dimmed', 'Selected theme survives restart'
     wait(lambda: execute("return document.body.textContent.includes('Start session');"), "restored dormant panes")
     assert not execute("return document.body.textContent.includes(arguments[0]);", expected), "Private scrollback should not be restored by default"
