@@ -7,7 +7,7 @@ import time
 
 def run(h):
     def output_has(text):
-        return h['execute']("return [...document.querySelectorAll('.terminal-host:not([hidden]) .ghostty-accessibility')].some(el=>el.textContent.includes(arguments[0]));", text)
+        return h['read']("return [...document.querySelectorAll('.terminal-host:not([hidden]) .ghostty-accessibility')].some(el=>el.textContent.includes(arguments[0]));", text)
 
     def input_element():
         return h['element']('.terminal-host:not([hidden]) .ghostty-input')
@@ -114,7 +114,7 @@ try:
 finally:
  os.write(1,b'\\x1b[?1000l\\x1b[?1006l');termios.tcsetattr(0,termios.TCSANOW,old)
 """, 'REVIEW_MOUSE_READY')
-    rect = h['execute']("const r=document.querySelector('.terminal-host:not([hidden]) canvas').getBoundingClientRect();return {x:Math.round(r.left+30),y:Math.round(r.top+30)};")
+    rect = h['read']("const r=document.querySelector('.terminal-host:not([hidden]) canvas').getBoundingClientRect();return {x:Math.round(r.left+30),y:Math.round(r.top+30)};")
     h['request']('POST', f"/session/{h['session']}/actions", {'actions': [{'type': 'pointer', 'id': 'review-mouse', 'parameters': {'pointerType': 'mouse'}, 'actions': [
         {'type': 'pointerMove', 'x': rect['x'], 'y': rect['y']}, {'type': 'pointerDown', 'button': 0},
         {'type': 'pointerMove', 'x': rect['x']+50, 'y': rect['y']+20, 'duration': 80}, {'type': 'pointerUp', 'button': 0}]}]})

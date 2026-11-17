@@ -38,6 +38,8 @@ jobs:
           python-version: '3.12'
       - name: Install disposable SSH fixture
         run: python -m pip install -r tests/fixtures/requirements.txt
+      - name: Verify safe WebDriver transport recovery
+        run: python -m unittest discover -s tests -p 'test_native_webdriver.py'
       - name: Build isolated native test application
         run: npm run tauri -- build --debug --no-bundle --config '{"productName":"Ternway CI","identifier":"dev.elashri.ternway.ci","bundle":{"createUpdaterArtifacts":false}}'
       - name: Install pinned native WebDriver
