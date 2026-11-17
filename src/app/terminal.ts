@@ -338,7 +338,7 @@ async function openTerminal(placement: Placement, command?: string, title?: stri
   await startSession();
 }
 
-/** Closes one pane. The local workspace always keeps at least one shell. */
+/** Closes one pane, including the last local shell. A new shell needs an explicit action. */
 export async function closeTerminal(tabId: string, confirmed = false): Promise<void> {
   const tab = state.terminalTabs.find((item) => item.id === tabId);
   if (!tab) return;
@@ -348,7 +348,6 @@ export async function closeTerminal(tabId: string, confirmed = false): Promise<v
   if (!await finishRemoteEdit(tab)) { tab.closed = true; render(); return; }
   disposeTerminalSurfaces([tab]);
   if (state.activeWorkspaceTabId && state.activeTerminalTabId) activeTerminalTabByWorkspace.set(state.activeWorkspaceTabId, state.activeTerminalTabId);
-  if (isLocalWorkspace() && !activeTerminalGroups().length) { await openNewTerminal(); return; }
   render();
 }
 
@@ -443,12 +442,13 @@ export function snapshotSession(): SavedSession {
     if (state.activeTerminalTabId && leaves(root).includes(state.activeTerminalTabId)) activeGroup = groups.length;
     groups.push({ workspace: group.workspaceTabId, title: group.title, customTitle: group.customTitle, root, focusedId: panes[group.focusedId] ? group.focusedId : leaves(root)[0], panes });
   }
-  return { version: 2, activeGroup, activeWorkspace: state.activeWorkspaceTabId ?? LOCAL_WORKSPACE_ID, workspaces: state.openServerTabs.map(tab => ({ ...tab })), groups };
+  return { version: 2, activeGroup, activeWorkspace: state.activeWorkspaceTabId ?? undefined, localOpen: state.localWorkspaceOpen, workspaces: state.openServerTabs.map(tab => ({ ...tab })), groups };
 }
 
 /** Restore only dormant panes. Starting any local/remote process requires an explicit action. */
 export async function restoreSession(value: unknown): Promise<void> {
   const saved = parseSavedLayout(value);
+  state.localWorkspaceOpen = saved.localOpen !== false;
   const workspaceIds = new Map<string, string>([[LOCAL_WORKSPACE_ID, LOCAL_WORKSPACE_ID]]);
   for (const old of saved.workspaces ?? []) {
     if (!state.snapshot.servers.some(server => server.id === old.serverId)) continue;
@@ -456,8 +456,6 @@ export async function restoreSession(value: unknown): Promise<void> {
     state.openServerTabs.push(tab); workspaceIds.set(old.id, tab.id); serverTabViews.set(tab.id, "terminal");
   }
   const restored: TerminalGroup[] = [];
-  const originalWorkspace = state.activeWorkspaceTabId;
-  const originalServer = state.activeServerId;
   for (const savedGroup of saved.groups) {
     const workspaceTabId = workspaceIds.get(savedGroup.workspace ?? LOCAL_WORKSPACE_ID);
     if (!workspaceTabId) continue;
@@ -470,11 +468,12 @@ export async function restoreSession(value: unknown): Promise<void> {
     for (const [oldId, id] of ids) await openTerminal({ kind: "restore", group, id, pane: savedGroup.panes[oldId] ?? {} });
     activeTerminalTabByWorkspace.set(workspaceTabId, group.focusedId);
   }
-  state.activeWorkspaceTabId = workspaceIds.get(saved.activeWorkspace ?? LOCAL_WORKSPACE_ID) ?? originalWorkspace ?? LOCAL_WORKSPACE_ID;
-  state.activeServerId = state.openServerTabs.find(tab => tab.id === state.activeWorkspaceTabId)?.serverId ?? (state.activeWorkspaceTabId === LOCAL_WORKSPACE_ID ? null : originalServer);
+  state.activeWorkspaceTabId = saved.activeWorkspace ? workspaceIds.get(saved.activeWorkspace) ?? null : null;
+  if (!state.activeWorkspaceTabId) state.activeWorkspaceTabId = state.localWorkspaceOpen ? LOCAL_WORKSPACE_ID : state.openServerTabs[0]?.id ?? null;
+  state.activeServerId = state.openServerTabs.find(tab => tab.id === state.activeWorkspaceTabId)?.serverId ?? null;
   const active = restored[saved.activeGroup];
   if (active?.workspaceTabId === state.activeWorkspaceTabId) activeTerminalTabByWorkspace.set(active.workspaceTabId, active.focusedId);
-  state.activeTerminalTabId = activeTerminalTabByWorkspace.get(state.activeWorkspaceTabId) ?? null;
+  state.activeTerminalTabId = activeTerminalTabByWorkspace.get(state.activeWorkspaceTabId ?? "") ?? null;
   state.activeView = "terminal";
 }
 

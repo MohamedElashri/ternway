@@ -28,3 +28,15 @@ test("invalid, oversized and ambiguous layout trees are rejected before restorat
   assert.throws(() => parseSavedLayout({ version: 1, groups: Array.from({ length: 129 }, group) }));
   assert.throws(() => parseSavedLayout({ version: 2, groups: [{ ...group(), workspace: "missing" }] }));
 });
+
+
+test("closing the local workspace survives an empty layout round trip", () => {
+  const saved = parseSavedLayout({ version: 2, localOpen: false, groups: [], workspaces: [] });
+  assert.equal(saved.localOpen, false);
+  assert.equal(saved.activeWorkspace, undefined);
+  assert.deepEqual(parseSavedLayout(JSON.parse(JSON.stringify(saved))), saved);
+  const old = parseSavedLayout({ version: 2, groups: [] });
+  assert.equal(old.localOpen, true);
+  assert.equal(old.activeWorkspace, "local");
+  assert.throws(() => parseSavedLayout({ version: 2, localOpen: false, groups: [{...group(), workspace:"local"}] }), /Closed local workspace/);
+});
