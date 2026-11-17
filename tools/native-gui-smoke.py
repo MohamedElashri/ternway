@@ -102,7 +102,9 @@ def click(selector):
 def type_into(selector, text):
     target = wait(lambda: element(selector), f'input ready: {selector}')
     request("POST", f"/session/{session}/element/{target}/clear", {})
-    request("POST", f"/session/{session}/element/{target}/value", {"text": text, "value": list(text)})
+    # WebKit rejects an empty send-keys payload; clear already performs that edit.
+    if text:
+        request("POST", f"/session/{session}/element/{target}/value", {"text": text, "value": list(text)})
 
 def shown(selector):
     return read("const el=document.querySelector(arguments[0]);return !!el && !!el.getClientRects().length;", selector)
