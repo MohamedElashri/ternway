@@ -206,3 +206,8 @@ omitted, the test uses SSH_AUTH_SOCK. The check enforces known_hosts, runs a fix
 read-only printf command, disconnects and removes its temporary profile store.
 A separate opt-in 1Password regression remains available. Protocol support does
 not guarantee support for every provider policy, key type or agent extension.
+
+Choose a workspace color preset in Settings → Appearance. GitHub Dark and GitHub Light are the
+defaults; dimmed, high-contrast, colorblind and Dracula presets are also included. Previews apply
+live to the workspace and fallback terminal palette. The light/dark shortcut remembers your last
+choice in each mode. Explicit terminal config and profile colors keep priority. See [theme details](docs/THEMES.md).

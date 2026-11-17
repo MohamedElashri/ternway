@@ -1,8 +1,9 @@
+import { restoredTheme, themePreset } from "./theme-presets";
 import { type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { AccountSnapshot, AppStateSnapshot, AuthorizedKey, CommandResult, ComposeProject, CredentialStatus, CronJob, DiskExplorerSnapshot, DockerSnapshot, FirewallSnapshot, LargestDirectory, PackagePage, PortInfo, ProcessInfo, RemoteFile, SavedCommand, SecuritySnapshot, ServerCapabilities, ServerConnection, ServerProfile, ServiceDetails, ServiceInfo, TerminalTab, TransferProgress, TunnelConfig, TunnelStatus } from "../types";
-import { DEFAULT_CONFIG, DEFAULT_THEME, type TerminalConfig, type XtermTheme } from "./config";
+import { DEFAULT_CONFIG, type TerminalConfig, type XtermTheme } from "./config";
 import { LINUX_DEFAULTS, MACOS_DEFAULTS, parseKeybindings, type Keybinding } from "./keybindings";
 import { TerminalSurface } from "./terminal-surface";
 import type { ActiveOperation, AdministrationTab, ContainerPlatformTab, DashboardState, DiskTab, DockerSection, HostKeyMismatch, HostKeyUnknown, LogTarget, LogViewerState, MasterPasswordPromptMode, ModalKind, TerminalGroup, View, WorkspaceTab } from "./types";
@@ -49,6 +50,7 @@ export interface LoadedTerminalConfig extends ResolvedProfile {
 }
 
 export type TerminalRenderer = "auto" | "webgl" | "dom";
+const storedAppearance = restoredTheme(localStorage);
 const storedRenderer = localStorage.getItem("ternway-renderer");
 
 const storedInterfaceScale = Number(localStorage.getItem("ternway-interface-scale"));
@@ -65,7 +67,8 @@ export class AppState {
   sidebarCopyPlacement: { sourceId: string; copyId: string } | null = null;
   activeView: View = "dashboard";
   serverQuery = "";
-  darkMode = localStorage.getItem("ternway-theme") !== "light";
+  themeId = storedAppearance.id;
+  darkMode = storedAppearance.mode === "dark";
   loading = true;
   errorMessage = "";
   modal: ModalKind = null;
@@ -148,7 +151,7 @@ export class AppState {
   terminalTabs: TerminalTab[] = [];
   activeTerminalTabId: string | null = null;
   terminalGroups: TerminalGroup[] = [];
-  terminalConfig: LoadedTerminalConfig = { path: "", config: DEFAULT_CONFIG, theme: DEFAULT_THEME, profiles: new Map(), ignored: [], errors: [] };
+  terminalConfig: LoadedTerminalConfig = { path: "", config: DEFAULT_CONFIG, theme: themePreset(this.themeId).terminal, profiles: new Map(), ignored: [], errors: [] };
   keybindings: Keybinding[] = parseKeybindings(platform === "macos" ? MACOS_DEFAULTS : LINUX_DEFAULTS);
   terminalRenderer: TerminalRenderer = storedRenderer === "webgl" || storedRenderer === "dom" ? storedRenderer : "auto";
   terminalUnlisteners: UnlistenFn[] = [];

@@ -1,3 +1,4 @@
+import { applyThemeTokens, themePreset } from "./theme-presets";
 import { collapsedGroups } from "./connection-groups";
 import { unavailableToolReason } from "./navigation";
 import { icon } from "../icons";
@@ -32,7 +33,9 @@ export function render(): void {
   if (previousServerList) sidebarScrollPositions.servers = previousServerList.scrollTop;
   if (previousNavigation) sidebarScrollPositions.navigation = previousNavigation.scrollTop;
   const nextLocation = state.activeWorkspaceTabId ? `${state.activeWorkspaceTabId}:${state.activeView}` : "welcome";
+  applyThemeTokens(document.documentElement, themePreset(state.themeId));
   root.dataset.theme = state.darkMode ? "dark" : "light";
+  root.dataset.colorTheme = state.themeId;
   root.innerHTML = quickMode ? renderQuickShell() : `${renderTitlebar()}${state.loading ? renderLoading() : renderShell()}`;
   restoreConnectionForm(root, previousConnectionForm);
   restoreConnectionForm(root, previousPasswordForm);

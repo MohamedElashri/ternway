@@ -1,3 +1,4 @@
+import { setColorTheme, toggleColorTheme } from "./appearance";
 import { openLibraryTools, applyBulkConnections, exportLibraryBackup, restoreLibraryBackup, retryEditRecovery } from "./library-tools";
 import { openTransferQueue, refreshTransferQueue, transferAction, runQueue } from "./transfer-queue";
 import { showToast } from "./toasts";
@@ -398,13 +399,8 @@ export async function runAction(action: string, target: HTMLElement = document.c
     case "load-more": await loadMoreActiveView(); break;
     case "retry": state.errorMessage = ""; await loadActiveView(false, true); break;
     case "dismiss-error": state.errorMessage = ""; render(); break;
-    case "theme":
-      state.darkMode = !state.darkMode;
-      localStorage.setItem("ternway-theme", state.darkMode ? "dark" : "light");
-      render();
-      // A `theme = light:A,dark:B` config follows the appearance.
-      if (state.terminalConfig.config.theme?.includes(":")) void loadTerminalConfig();
-      break;
+    case "select-color-theme": if (target.dataset.themeId) await setColorTheme(target.dataset.themeId, true, true); break;
+    case "theme": await toggleColorTheme(); break;
     case "interface-scale-decrease": await stepInterfaceScale(-1); break;
     case "interface-scale-increase": await stepInterfaceScale(1); break;
     case "interface-scale-reset": await setInterfaceScale(DEFAULT_INTERFACE_SCALE); break;

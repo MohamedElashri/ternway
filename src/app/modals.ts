@@ -1,3 +1,4 @@
+import { renderThemePicker } from "./theme-picker";
 import { libraryToolsContent } from "./library-tools";
 import { transferQueueContent } from "./transfer-queue";
 import { workspaceLibraryContent } from "./workspace-library";
@@ -251,7 +252,7 @@ export function renderSecurityModal(): string {
       <div class="settings-content">
         <section class="settings-group" id="settings-appearance" tabindex="-1" aria-labelledby="settings-appearance-title">
           <h3 id="settings-appearance-title">Appearance</h3>
-          <div class="settings-row"><div class="settings-row-copy"><h4>Theme</h4><p>Choose a light or dark workspace.</p></div><button class="button button-quiet" data-action="theme">${icon(state.darkMode ? "sun" : "moon")} Use ${state.darkMode ? "light" : "dark"} theme</button></div>
+          ${renderThemePicker(state.themeId)}
           <div class="settings-row"><div class="settings-row-copy"><h4>Interface scale</h4><p>Resize the interface. Use ${platform === "macos" ? "Command" : "Ctrl"} +/− or 0 outside the terminal.</p></div>
             <div class="interface-scale-control" role="group" aria-label="Interface scale">
               <button class="icon-button" type="button" data-action="interface-scale-decrease" aria-label="Decrease interface scale" ${scaleIndex <= 0 ? "disabled" : ""}>${icon("minus")}</button>

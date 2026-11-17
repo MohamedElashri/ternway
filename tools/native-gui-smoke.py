@@ -181,6 +181,24 @@ try:
     click('[data-action="credential-settings"]')
     sections = execute("return Array.from(document.querySelectorAll('.settings-nav button')).map(el=>el.textContent.trim());")
     assert sections[-1] == "About", sections
+    assert execute("return document.querySelector('#app').dataset.colorTheme;") == 'github-dark'
+    theme_backgrounds = [('github-light','#ffffff'), ('github-dark','#0d1117'), ('github-dark-dimmed','#22272e'), ('github-light-high-contrast','#ffffff'), ('github-dark-high-contrast','#0a0c10'), ('github-light-colorblind','#ffffff'), ('github-dark-colorblind','#0d1117'), ('dracula','#282a36')]
+    for theme_id, background in theme_backgrounds:
+        click(f'[data-theme-id="{theme_id}"]')
+        wait(lambda: execute("return document.querySelector('#app').dataset.colorTheme===arguments[0] && getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()===arguments[1];", theme_id, background), f'live {theme_id} workspace and terminal palette')
+        assert execute("return document.querySelector('.terminal-layer').textContent.includes(arguments[0]);", expected), 'Theme changes preserve terminal output'
+        if theme_id in ['github-dark','github-light']:
+            screenshot(theme_id + '.png')
+    original_config = (config / 'config').read_text()
+    (config / 'config').write_text(original_config + 'background = #123456\n')
+    wait(lambda: execute("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#123456';"), 'explicit terminal color applied')
+    click('[data-theme-id="github-light"]')
+    wait(lambda: execute("return document.querySelector('#app').dataset.colorTheme==='github-light' && getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#123456';"), 'terminal config color survives workspace theme change')
+    (config / 'config').write_text(original_config)
+    wait(lambda: execute("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#ffffff';"), 'terminal returns to preset after removing color override')
+    click('[data-theme-id="github-dark-dimmed"]')
+    wait(lambda: execute("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#22272e';"), 'dimmed palette restored')
+    check('all built-in themes apply live without losing terminal output and preserve explicit config colors')
     click('[data-action="close-modal"]')
     click('[data-action="theme"]')
     if execute("return document.querySelector('[data-theme]')?.dataset.theme;") != "dark":
@@ -388,6 +406,7 @@ try:
     session = None
     (data_dir / "transfers.json").write_text("damaged test queue")
     start()
+    assert execute("return document.querySelector('#app').dataset.colorTheme;") == 'github-dark-dimmed', 'Selected theme survives restart'
     wait(lambda: execute("return document.body.textContent.includes('Start session');"), "restored dormant panes")
     assert not execute("return document.body.textContent.includes(arguments[0]);", expected), "Private scrollback should not be restored by default"
     assert "retained" in invoke("transfer_queue_notice")

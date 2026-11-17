@@ -1,3 +1,4 @@
+import { watchColorTheme } from "./app/appearance";
 import { freezeShutdown, releaseShutdown, shutdownFrozen } from "./app/shutdown-freeze";
 import { refreshTransferQueue } from "./app/transfer-queue";
 import { flushRemoteEdits } from "./app/terminal";
@@ -57,6 +58,7 @@ async function prepareQuit(token: string, restart = false): Promise<void> {
 }
 
 async function installEventListeners(): Promise<void> {
+  watchColorTheme();
   await installCredentialPrivacy();
   state.terminalUnlisteners.push(...await installWindowEvents(appWindow.label, {
     quit: (token, restart) => { void prepareQuit(token, restart); },
