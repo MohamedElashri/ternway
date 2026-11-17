@@ -63,6 +63,7 @@ export class AppState {
     ? storedInterfaceScale
     : DEFAULT_INTERFACE_SCALE;
   snapshot: AppStateSnapshot = { identities: [], version: 1, servers: [], sshKeys: [], sshConfigEntries: [] };
+  localWorkspaceOpen = true;
   activeServerId: string | null = null;
   activeWorkspaceTabId: string | null = null;
   openServerTabs: WorkspaceTab[] = [];

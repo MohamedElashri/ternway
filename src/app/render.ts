@@ -96,9 +96,9 @@ function renderQuickShell(): string {
 }
 
 export function renderShell(): string {
-  return `<div class="app-shell ${isLocalWorkspace() ? "no-sidebar" : ""}">
+  return `<div class="app-shell ${(isLocalWorkspace() || !state.activeServerId) ? "no-sidebar" : ""}">
     ${renderServerRail()}
-    ${isLocalWorkspace() ? "" : renderSidebar()}
+    ${isLocalWorkspace() || !state.activeServerId ? "" : renderSidebar()}
     <main class="main-area">
       ${renderTabBar()}
       <div class="update-notice-host" data-update-notice>${renderUpdateNotice(updates.state)}</div>
@@ -226,8 +226,8 @@ export function renderTabBar(): string {
     return `<button class="workspace-tab ${selected ? "active" : ""}" data-workspace-tab="${escapeHtml(tab.id)}" role="tab" aria-selected="${selected}"><span class="workspace-tab-status ${connected ? "online" : ""}"></span><span class="workspace-tab-copy">${escapeHtml(label)}</span><span class="workspace-tab-action" data-workspace-tab-action data-workspace-rename="${escapeHtml(tab.id)}" title="Rename tab" aria-label="Rename ${escapeHtml(label)} tab">${icon("edit")}</span><span class="workspace-tab-action workspace-tab-close" data-workspace-tab-action data-workspace-close="${escapeHtml(tab.id)}" title="Close tab" aria-label="Close ${escapeHtml(label)} tab">${icon("close")}</span></button>`;
   }).join("") : "";
   const local = isLocalWorkspace();
-  const localTab = `<button class="workspace-tab workspace-tab-local ${local ? "active" : ""}" data-action="open-local" aria-pressed="${local}" title="Shells on this machine"><span class="workspace-tab-icon">${icon("terminalSmall")}</span><span class="workspace-tab-copy">Local</span></button>`;
-  return `<div class="workspace-tabbar"><button class="button button-quiet" data-action="workspace-library" title="Saved workspace layouts">Workspaces</button>${localTab}<div class="workspace-tabs" role="tablist" aria-label="Open server workspaces">${tabContent}</div>${state.activeServerId && activeServerIsConnected() ? `<button class="button button-quiet workspace-disconnect" data-action="disconnect">Disconnect</button>` : ""}</div>`;
+  const localTab = `<button class="workspace-tab workspace-tab-local ${local ? "active" : ""}" data-action="open-local" aria-pressed="${local}" title="Shells on this machine"><span class="workspace-tab-icon">${icon("terminalSmall")}</span><span class="workspace-tab-copy">Local</span><span class="workspace-tab-action workspace-tab-close" data-workspace-close="local" title="Close local workspace" aria-label="Close local workspace">${icon("close")}</span></button>`;
+  return `<div class="workspace-tabbar"><button class="button button-quiet" data-action="workspace-library" title="Saved workspace layouts">Workspaces</button>${state.localWorkspaceOpen ? localTab : `<button class="icon-button" data-action="open-local" aria-label="New local terminal" title="New local terminal">${icon("terminalSmall")}</button>`}<div class="workspace-tabs" role="tablist" aria-label="Open server workspaces">${tabContent}</div>${state.activeServerId && activeServerIsConnected() ? `<button class="button button-quiet workspace-disconnect" data-action="disconnect">Disconnect</button>` : ""}</div>`;
 }
 
 export function renderWelcome(): string {

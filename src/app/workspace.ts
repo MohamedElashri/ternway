@@ -89,6 +89,7 @@ async function leaveActiveWorkspace(): Promise<void> {
 
 /** Switches to the local workspace, starting a shell if none is open. */
 export async function selectLocalWorkspace(): Promise<void> {
+  state.localWorkspaceOpen = true;
   if (!isLocalWorkspace()) {
     await leaveActiveWorkspace();
     clearRefreshTimer();
@@ -162,7 +163,26 @@ export async function closeWorkspaceInteractiveSessions(workspaceTabId: string):
   disposeTerminalSurfaces(closingTabs);
 }
 
+/** Close every local tab and split without creating a replacement shell. */
+export async function closeLocalWorkspace(): Promise<void> {
+  const tabs = state.terminalTabs.filter(tab => tab.workspaceTabId === LOCAL_WORKSPACE_ID);
+  if (!await confirmTerminalClose(tabs, "Close local workspace")) return;
+  if (isLocalWorkspace()) cancelCurrentOperation();
+  await closeWorkspaceInteractiveSessions(LOCAL_WORKSPACE_ID);
+  state.localWorkspaceOpen = false;
+  if (isLocalWorkspace()) {
+    state.activeWorkspaceTabId = null;
+    state.activeServerId = null;
+    state.connection = null;
+    state.dashboard = null;
+    const next = state.openServerTabs.at(-1);
+    if (next) { await selectWorkspaceTab(next.id); return; }
+  }
+  render();
+}
+
 export async function closeWorkspaceTab(workspaceTabId: string): Promise<void> {
+  if (workspaceTabId === LOCAL_WORKSPACE_ID) { await closeLocalWorkspace(); return; }
   const tabIndex = state.openServerTabs.findIndex((tab) => tab.id === workspaceTabId);
   if (tabIndex < 0) return;
   const closingTab = state.openServerTabs[tabIndex];
@@ -181,7 +201,9 @@ export async function closeWorkspaceTab(workspaceTabId: string): Promise<void> {
   state.activeWorkspaceTabId = null;
   state.activeServerId = null;
   state.connection = null;
-  await selectWorkspaceTab(nextTab?.id ?? LOCAL_WORKSPACE_ID);
+  if (nextTab) await selectWorkspaceTab(nextTab.id);
+  else if (state.localWorkspaceOpen) await selectLocalWorkspace();
+  else render();
 }
 
 export async function refreshSnapshot(loadView = true): Promise<void> {

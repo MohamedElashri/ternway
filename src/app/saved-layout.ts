@@ -6,6 +6,7 @@ export interface SavedSession {
   version: 1 | 2;
   activeGroup: number;
   activeWorkspace?: string;
+  localOpen?: boolean;
   workspaces?: { id: string; serverId: string; label?: string }[];
   groups: SavedGroup[];
 }
@@ -48,5 +49,7 @@ export function parseSavedLayout(value: unknown): SavedSession {
     }
     return { workspace, title: group.title, customTitle: group.customTitle === true, root, focusedId: ids.has(group.focusedId) ? group.focusedId : [...ids][0], panes };
   });
-  return { version: 2, activeGroup: Number.isSafeInteger(input.activeGroup) && input.activeGroup >= 0 ? input.activeGroup : 0, activeWorkspace: workspaceIds.has(input.activeWorkspace ?? "") ? input.activeWorkspace : "local", workspaces: safeWorkspaces, groups };
+  const localOpen = input.localOpen !== false;
+  if (!localOpen && groups.some(group => group.workspace === "local")) throw new Error("Closed local workspace contains saved panes");
+  return { version: 2, localOpen, activeGroup: Number.isSafeInteger(input.activeGroup) && input.activeGroup >= 0 ? input.activeGroup : 0, activeWorkspace: workspaceIds.has(input.activeWorkspace ?? "") && (localOpen || input.activeWorkspace !== "local") ? input.activeWorkspace : localOpen ? "local" : safeWorkspaces[0]?.id, workspaces: safeWorkspaces, groups };
 }

@@ -150,6 +150,19 @@ try:
         assert 1100 <= size['width'] <= 1440 and 700 <= size['height'] <= 900, size
     check_startup_size()
     check('fresh native window opens at its configured usable size')
+    wait(lambda: element('.xterm-helper-textarea'), 'initial local shell')
+    click('.term-tab-close')
+    wait(lambda: shown('.terminal-empty') or shown('[data-app-dialog]'), 'close final local terminal')
+    if shown('[data-app-dialog]'):
+        click('[data-action="accept-app-dialog"]')
+    wait(lambda: shown('.terminal-empty'), 'last local shell stays closed')
+    assert execute("return document.querySelectorAll('.terminal-host').length;") == 0
+    click('[data-workspace-close="local"]')
+    wait(lambda: not shown('.workspace-tab-local'), 'local workspace closes')
+    click('[data-action="open-local"]')
+    wait(lambda: element('.xterm-helper-textarea'), 'explicitly reopen local workspace')
+    assert execute("return document.querySelectorAll('.term-tab').length;") == 1
+    check('last local terminal and Local workspace close without replacement shells and reopen explicitly')
     textarea = wait(lambda: element('.xterm-helper-textarea'), "local terminal")
     # The marker is encoded in the command so shell echo cannot satisfy this assertion.
     expected = "CI_NATIVE_λ_漢字"
