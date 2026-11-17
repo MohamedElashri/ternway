@@ -75,9 +75,16 @@ impl Store {
     }
 
     pub fn create_connection_folder(&self, path: &str) -> Result<(), String> {
+        let path = normalize_path(path)?;
         let mut db = self.connection.lock().map_err(|e| e.to_string())?;
         let tx = db.transaction().map_err(|e| e.to_string())?;
-        ensure_folders(&tx, path)?;
+        if folders(&tx)?
+            .iter()
+            .any(|existing| existing.to_lowercase() == path.to_lowercase())
+        {
+            return Err("Folder already exists; choose another name".into());
+        }
+        ensure_folders(&tx, &path)?;
         tx.commit().map_err(|e| e.to_string())
     }
 
@@ -150,21 +157,37 @@ impl Store {
                 .map_err(|e| e.to_string())?;
             }
         }
-        // Persist inferred legacy folders as well, so empty folders survive later moves.
-        tx.execute("DELETE FROM connection_folders", [])
-            .map_err(|e| e.to_string())?;
-        for path in existing {
-            if within(&path, &source) {
-                if let Some(mapped) = remap(&path) {
-                    ensure_folders(&tx, &mapped)?;
-                }
-            } else {
-                ensure_folders(&tx, &path)?;
+        // Change only this subtree. Rebuilding every folder cascades unrelated order rows
+        // and makes one rename proportional to the entire library's total path depth.
+        let changed = existing
+            .iter()
+            .filter(|path| within(path, &source))
+            .collect::<Vec<_>>();
+        for path in &changed {
+            tx.execute("DELETE FROM connection_folders WHERE path=?1", [path])
+                .map_err(|e| e.to_string())?;
+        }
+        for path in changed {
+            if let Some(mapped) = remap(path) {
+                ensure_folders(&tx, &mapped)?;
             }
         }
-        let order = saved_order.into_iter().filter_map(|path| {
-            if within(&path, &source) { remap(&path) } else { Some(path) }
-        }).collect::<Vec<_>>();
+        // Persist inferred legacy paths once so ordered legacy folders remain valid FK targets.
+        for path in &saved_order {
+            if !within(path, &source) {
+                ensure_folders(&tx, path)?;
+            }
+        }
+        let order = saved_order
+            .into_iter()
+            .filter_map(|path| {
+                if within(&path, &source) {
+                    remap(&path)
+                } else {
+                    Some(path)
+                }
+            })
+            .collect::<Vec<_>>();
         crate::connection_sidebar::write_folder_order(&tx, &order)?;
         tx.commit().map_err(|e| e.to_string())
     }
@@ -210,6 +233,53 @@ pub fn delete_connection_folder(
 mod tests {
     use super::*;
     use crate::models::ServerDraft;
+
+    #[test]
+    fn folder_edits_preserve_unrelated_rows_and_reject_hidden_case_duplicates() {
+        let dir =
+            std::env::temp_dir().join(format!("ternway-folder-edits-{}", uuid::Uuid::new_v4()));
+        let store = Store::open(&dir.join("db"), &dir.join("vault")).unwrap();
+        store.create_connection_folder("Work/Production").unwrap();
+        store.create_connection_folder("Unrelated/Child").unwrap();
+        assert!(store
+            .create_connection_folder(" work ")
+            .unwrap_err()
+            .contains("already exists"));
+        store
+            .set_connection_folder_order(&[
+                "Unrelated".into(),
+                "Work".into(),
+                "Work/Production".into(),
+                "Unrelated/Child".into(),
+            ])
+            .unwrap();
+        store.connection.lock().unwrap().execute_batch(
+            "CREATE TRIGGER protect_unrelated_folder BEFORE DELETE ON connection_folders WHEN OLD.path LIKE 'Unrelated%' BEGIN SELECT RAISE(ABORT, 'unrelated folder changed'); END;"
+        ).unwrap();
+        store
+            .change_connection_folder("Work", Some("Company"))
+            .unwrap();
+        assert_eq!(
+            store.connection_folder_order().unwrap(),
+            vec![
+                "Unrelated",
+                "Company",
+                "Company/Production",
+                "Unrelated/Child"
+            ]
+        );
+        store.change_connection_folder("Company", None).unwrap();
+        assert_eq!(
+            store.connection_folder_order().unwrap(),
+            vec!["Unrelated", "Unrelated/Child"]
+        );
+        assert_eq!(
+            store.connection_folders().unwrap(),
+            vec!["Unrelated", "Unrelated/Child"]
+        );
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn ordering_and_folders_survive_rename_backup_restore_and_reopen() {

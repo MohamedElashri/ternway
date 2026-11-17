@@ -1,4 +1,4 @@
-import { installConnectionSidebar } from "./app/connection-sidebar";
+import { installConnectionSidebar, refreshConnectionLibrary } from "./app/connection-sidebar";
 import { installTabNavigation } from "./app/tab-view";
 import { watchColorTheme } from "./app/appearance";
 import { freezeShutdown, releaseShutdown, shutdownFrozen } from "./app/shutdown-freeze";
@@ -7,7 +7,7 @@ import { flushRemoteEdits } from "./app/terminal";
 import { installCredentialPrivacy } from "./app/credential-privacy";
 import { installWindowEvents } from "./app/window-events";
 import { confirmTerminalClose } from "./app/terminal-close";
-import { cancelCurrentOperation } from "./app/session";
+import { cancelCurrentOperation, setError } from "./app/session";
 import { watchSharedSsh } from "./app/shared-ssh";
 import { rememberGroup } from "./app/connection-groups";
 import { closeCustomSelects } from "./app/select-controls";
@@ -69,7 +69,7 @@ async function installEventListeners(): Promise<void> {
     about: () => { void runAction("show-about"); },
     updates: () => { void runAction("check-updates"); },
   }, listen));
-  state.terminalUnlisteners.push(await listen("library-changed", () => { void refreshSnapshot(false).then(() => { if (!state.modal && !state.appDialogPrompt) render(); }); }));
+  state.terminalUnlisteners.push(await listen("library-changed", () => { void refreshConnectionLibrary().catch(setError); }));
   state.terminalUnlisteners.push(await listen("transfer-queue-changed", () => { void refreshTransferQueue(); }));
   state.terminalUnlisteners.push(await listen<{token: string; message: string}>("shutdown-aborted", event => { releaseShutdown(event.payload.token); showToast(event.payload.message, "info"); }));
   // Quit can be requested before this webview has installed its event listener.

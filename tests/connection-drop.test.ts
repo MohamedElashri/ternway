@@ -26,3 +26,9 @@ test("folder dragging changes sibling order and preserves the nested hierarchy",
   assert.equal(folderDrop(paths,undefined,"Alpha","Alpha/Child"),null);
   assert.equal(folderDrop(paths,undefined,"Alpha","missing"),null);
 });
+
+
+test("dropping into the existing position avoids an unnecessary database rewrite", () => {
+  assert.equal(connectionDrop(servers,order,"a","Work","c",false),null);
+  assert.equal(folderDrop(["Alpha","Beta"],undefined,"Alpha","Beta",false),null);
+});

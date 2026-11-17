@@ -12,6 +12,7 @@ import { render } from "./render";
 import { enhanceSelects } from "./select-controls";
 import { renderUpdateSection } from "./updater";
 import { DEFAULT_INTERFACE_SCALE, INTERFACE_SCALE_LEVELS, platform, root, state } from "./state";
+import { focusModal } from "./modal-state";
 
 export function renderAppDialog(): string {
   const prompt = state.appDialogPrompt;
@@ -93,21 +94,32 @@ export function renderTextInputModal(): string {
   return renderModalShell(escapeHtml(prompt.title), "Enter the value below to continue.", `<form class="modal-body form-stack" data-form="input-prompt"><label class="field"><span>${escapeHtml(prompt.label)}</span>${control}</label><div class="modal-actions"><button type="button" class="button button-quiet" data-action="close-modal">Cancel</button><button type="submit" class="button button-primary">Continue</button></div></form>`, "modal-small");
 }
 
-export function requestTextInput(prompt: NonNullable<typeof state.textInputPrompt>): Promise<string | null> {
+let preservedTextPrompt: { previousFocus: HTMLElement | null } | null = null;
+export function requestTextInput(prompt: NonNullable<typeof state.textInputPrompt>, preserveWorkspace = false): Promise<string | null> {
   if (state.finishTextInputWaiter) return Promise.resolve(null);
+  preservedTextPrompt = preserveWorkspace && !state.modal ? { previousFocus: document.activeElement as HTMLElement | null } : null;
   state.textInputPrompt = prompt;
   state.modal = "input-prompt";
   const waiter = new Promise<string | null>((resolve) => { state.finishTextInputWaiter = resolve; });
-  render();
+  if (preservedTextPrompt) {
+    root.insertAdjacentHTML("beforeend", renderTextInputModal());
+    enhanceSelects(root);
+    focusModal(root);
+  } else render();
   return waiter;
 }
 
 export function finishTextInput(value: string | null): void {
   const finish = state.finishTextInputWaiter;
+  const preserved = preservedTextPrompt;
+  preservedTextPrompt = null;
   state.finishTextInputWaiter = null;
   state.textInputPrompt = null;
   state.modal = null;
-  render();
+  if (preserved) {
+    root.querySelector('form[data-form="input-prompt"]')?.closest("[data-backdrop]")?.remove();
+    if (preserved.previousFocus?.isConnected) preserved.previousFocus.focus({ preventScroll: true });
+  } else render();
   finish?.(value);
 }
 

@@ -62,8 +62,31 @@ test("Alt+arrow provides keyboard ordering without a separate management screen"
 test("an ordinary folder label click keeps its action target", () => {
   const f=fixture(); const label=f.folder.querySelector('button')!;
   f.pointer('pointerdown',label,20);
-  assert.equal(f.capture(),label);
+  assert.equal(f.capture(),null);
   f.pointer('pointerup',label,20);
   assert.equal(f.capture(),null); assert.deepEqual(f.moves,[]);
   f.dom.window.close();
+});
+
+
+test("pointer capture stays on the stable root and window blur cancels without a move", () => {
+  const f=fixture();
+  f.pointer('pointerdown',f.a,20); f.pointer('pointermove',f.root,140);
+  assert.equal(f.capture(),f.root);
+  assert.equal(f.root.dataset.sidebarDragging,"true");
+  f.dom.window.dispatchEvent(new f.dom.window.Event('blur'));
+  assert.equal(f.capture(),null);
+  assert.equal(f.root.dataset.sidebarDragging,undefined);
+  assert.equal(f.root.querySelector('.sidebar-dragging,.sidebar-drop-after'),null);
+  f.pointer('pointerup',f.root,140);
+  assert.deepEqual(f.moves,[]); f.dom.window.close();
+});
+
+test("release outside the root still ends capture and a subsequent drag works", () => {
+  const f=fixture();
+  f.pointer('pointerdown',f.a,20); f.pointer('pointermove',f.root,140);
+  f.setHit(null); f.pointer('pointerup',f.dom.window.document.body,140);
+  assert.equal(f.capture(),null);
+  f.setHit(f.b); f.pointer('pointerdown',f.a,20); f.pointer('pointermove',f.root,140); f.pointer('pointerup',f.root,140);
+  assert.equal(f.moves.length,1); f.dom.window.close();
 });

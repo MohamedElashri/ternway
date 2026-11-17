@@ -84,6 +84,32 @@ export function render(): void {
   restoreSettingsFocus(root, settingsFocus);
 }
 
+/** Organization changes must not rebuild terminals, dialogs, or the active tool view. */
+let sidebarRenderDeferred = false;
+export function renderConnectionSidebar(focus?: string): void {
+  if (root.dataset.sidebarDragging) {
+    if (!sidebarRenderDeferred) {
+      sidebarRenderDeferred = true;
+      root.addEventListener("sidebar-drag-ended", () => { sidebarRenderDeferred = false; renderConnectionSidebar(); }, { once: true });
+    }
+    return;
+  }
+  const list = root.querySelector<HTMLElement>(".server-list");
+  if (!list) return;
+  const active = document.activeElement as HTMLElement | null;
+  if (!focus && active && list.contains(active)) {
+    const server = active.closest<HTMLElement>("[data-server-id]");
+    const folder = active.closest<HTMLElement>("[data-action=folder-actions]");
+    if (server) focus = `.server-item[data-server-id="${CSS.escape(server.dataset.serverId!)}"]`;
+    else if (folder) focus = `[data-action="folder-actions"][data-folder="${CSS.escape(folder.dataset.folder ?? "")}"]`;
+  }
+  const scroll = list.scrollTop;
+  const servers = filteredServers();
+  list.innerHTML = servers.length || !state.serverQuery.trim() ? renderServerGroups(servers) : '<div class="server-empty">No matching connections</div>';
+  list.scrollTop = scroll;
+  if (focus) list.querySelector<HTMLElement>(focus)?.focus({ preventScroll: true });
+}
+
 function activeGroupTitle(): string | undefined {
   const group = activeTerminalGroup();
   return group ? groupTitle(group) : undefined;
@@ -148,7 +174,7 @@ export function normalizedGroupName(groupName?: string): string {
 
 export function groupKey(groupName?: string): string {
   const path = normalizedGroupName(groupName);
-  return path ? `folder:${path.toLocaleLowerCase()}` : "ungrouped";
+  return path ? `folder:${path.toLowerCase()}` : "ungrouped";
 }
 
 export function renderServerGroups(servers: ServerProfile[]): string {
