@@ -69,7 +69,7 @@ def read(script, *args):
     return execute(script,*args,idempotent=True)
 
 def invoke(command, **args):
-    read_only = command in {'get_state','list_workspaces','list_transfer_jobs','terminal_activities','read_clipboard_text','preview_library_backup','read_remote_file','list_remote_files'}
+    read_only = command in {'get_state','list_workspaces','list_transfer_jobs','terminal_activities','read_clipboard_text','preview_library_backup','read_remote_file','list_remote_files','plugin:window|is_decorated','plugin:window|is_resizable'}
     result = request("POST", f"/session/{session}/execute/async", {"script": "const done=arguments[arguments.length-1]; window.__TAURI_INTERNALS__.invoke(arguments[0],arguments[1]).then(value=>done({ok:true,value}),error=>done({ok:false,error}));", "args": [command, args]},idempotent=read_only)
     if not result["ok"]:
         raise RuntimeError(str(result["error"]))
