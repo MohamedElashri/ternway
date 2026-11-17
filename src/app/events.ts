@@ -1,3 +1,8 @@
+import { movedConnectionOrder } from "./connection-order";
+import { folderPath } from "./connection-folders";
+import { isSettingsPage, settingsPageForKey } from "./settings-pages";
+
+import { setColorTheme, toggleColorTheme } from "./appearance";
 import { openLibraryTools, applyBulkConnections, exportLibraryBackup, restoreLibraryBackup, retryEditRecovery } from "./library-tools";
 import { openTransferQueue, refreshTransferQueue, transferAction, runQueue } from "./transfer-queue";
 import { showToast } from "./toasts";
@@ -286,6 +291,47 @@ export async function handleClick(event: MouseEvent): Promise<void> {
 /** Runs a `data-action`; `target` carries extra data attributes for actions that need them. */
 export async function runAction(action: string, target: HTMLElement = document.createElement("button")): Promise<void> {
   switch (action) {
+    case "connection-order": state.modal = "connection-order"; render(); break;
+    case "move-connection-up":
+    case "move-connection-down":
+    case "reset-connection-order": {
+      const ids = action === "reset-connection-order" ? [] : movedConnectionOrder(state.snapshot.servers, state.snapshot.connectionOrder, target.dataset.connectionId!, action === "move-connection-up" ? -1 : 1);
+      if (!ids) break;
+      try {
+        await invoke("set_connection_order", { serverIds: ids });
+        await refreshSnapshot(false); state.sidebarCopyPlacement = null; render();
+        root.querySelector<HTMLButtonElement>(`[data-action="${action}"][data-connection-id="${CSS.escape(target.dataset.connectionId ?? "")}"]`)?.focus();
+      } catch (error) { setError(error); }
+      break;
+    }
+    case "connection-folders": state.modal = "connection-folders"; render(); break;
+    case "create-connection-folder":
+    case "rename-connection-folder":
+    case "delete-connection-folder":
+    case "move-connection-folder": {
+      const returnToFolders = state.modal === "connection-folders";
+      try {
+        const path = target.dataset.folder ?? "";
+        if (action === "delete-connection-folder") {
+          if (!await confirm(`Remove “${path}” and its subfolders? All connections in these folders will move to Ungrouped.`, { title: "Remove folder", kind: "warning", confirmLabel: "Remove folder" })) break;
+          await invoke("delete_connection_folder", { path });
+        } else {
+          const moving = action === "move-connection-folder";
+          const server = moving ? state.snapshot.servers.find(s => s.id === target.dataset.connectionId) : undefined;
+          if (moving && !server) break;
+          const value = await requestTextInput({ title: moving ? "Move connection" : action === "create-connection-folder" ? "New folder" : "Rename or move folder", label: moving ? "Folder path (empty for Ungrouped)" : "Folder path (use / for nested folders)", defaultValue: server?.groupName ?? path, allowEmpty: moving, placeholder: "Work/Production" });
+          if (value === null) break;
+          const destination = folderPath(value);
+          if (moving) await invoke("set_connection_group", { serverIds: [server!.id], groupName: destination });
+          else if (action === "create-connection-folder") await invoke("create_connection_folder", { path: destination });
+          else await invoke("rename_connection_folder", { path, destination });
+        }
+        await refreshSnapshot(false); state.modal = "connection-folders"; render();
+      } catch (error) { setError(error); }
+      finally { if (returnToFolders && state.modal === null) { state.modal = "connection-folders"; render(); } }
+      break;
+    }
+
     case "rename-connection-group": {
       const ids = state.snapshot.servers.filter(s => groupKey(s.groupName) === target.dataset.group).map(s => s.id);
       const name = await requestTextInput({ title: "Move group connections", label: "Destination group (leave empty to ungroup)", defaultValue: target.dataset.label || "", allowEmpty: true });
@@ -324,10 +370,14 @@ export async function runAction(action: string, target: HTMLElement = document.c
       if (key === "source" || key === "issues" || key === "releases" || key === "license") await openUrl(BRAND[key]).catch(setError);
       break;
     }
-    case "settings-jump": {
-      const section = root.querySelector<HTMLElement>(`#${target.dataset.settingsTarget}`);
-      section?.scrollIntoView({ block: "start" });
-      section?.focus({ preventScroll: true });
+    case "settings-page": {
+      const page = target.dataset.settingsPage;
+      if (!isSettingsPage(page)) break;
+      state.settingsPage = page; render();
+      root.querySelector<HTMLButtonElement>(`[data-settings-page="${page}"]`)?.focus({ preventScroll: true });
+      if (page === "about") {
+        try { await loadAboutMetadata(); if (state.modal === "security" && state.settingsPage === page) { render(); root.querySelector<HTMLButtonElement>(`[data-settings-page="${page}"]`)?.focus({ preventScroll: true }); } } catch (error) { setError(error); }
+      }
       break;
     }
     case "library-tools": await openLibraryTools(); break;
@@ -398,13 +448,8 @@ export async function runAction(action: string, target: HTMLElement = document.c
     case "load-more": await loadMoreActiveView(); break;
     case "retry": state.errorMessage = ""; await loadActiveView(false, true); break;
     case "dismiss-error": state.errorMessage = ""; render(); break;
-    case "theme":
-      state.darkMode = !state.darkMode;
-      localStorage.setItem("ternway-theme", state.darkMode ? "dark" : "light");
-      render();
-      // A `theme = light:A,dark:B` config follows the appearance.
-      if (state.terminalConfig.config.theme?.includes(":")) void loadTerminalConfig();
-      break;
+    case "select-color-theme": if (target.dataset.themeId) await setColorTheme(target.dataset.themeId, true, true); break;
+    case "theme": await toggleColorTheme(); break;
     case "interface-scale-decrease": await stepInterfaceScale(-1); break;
     case "interface-scale-increase": await stepInterfaceScale(1); break;
     case "interface-scale-reset": await setInterfaceScale(DEFAULT_INTERFACE_SCALE); break;
@@ -458,7 +503,7 @@ export function handleInput(event: Event): void {
     const list = root.querySelector<HTMLElement>(".server-list");
     if (list) {
       const servers = filteredServers();
-      list.innerHTML = servers.length ? renderServerGroups(servers) : `<div class="server-empty">${state.serverQuery.trim() ? "No matching servers" : "No servers saved yet"}</div>`;
+      list.innerHTML = servers.length || (!state.serverQuery.trim() && state.snapshot.connectionFolders?.length) ? renderServerGroups(servers) : `<div class="server-empty">${state.serverQuery.trim() ? "No matching servers" : "No servers saved yet"}</div>`;
     } else {
       render();
     }
@@ -639,6 +684,12 @@ export async function handleSubmit(event: SubmitEvent): Promise<void> {
 }
 
 export function handleKeydown(event: KeyboardEvent): void {
+  const settingsTab = (event.target as HTMLElement).closest<HTMLElement>("[data-settings-page]");
+  if (settingsTab && isSettingsPage(settingsTab.dataset.settingsPage)) {
+    const next = settingsPageForKey(settingsTab.dataset.settingsPage, event.key);
+    if (next) { event.preventDefault(); event.stopPropagation(); settingsTab.dataset.settingsPage = next; void runAction("settings-page", settingsTab); return; }
+  }
+
   if (composingText(event)) return;
   const customPicker = (event.target as HTMLElement).closest<HTMLElement>(".custom-select");
   if (customPicker) {

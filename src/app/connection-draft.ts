@@ -1,3 +1,4 @@
+import { folderPath } from "./connection-folders.ts";
 /** Build the existing save_server contract without copying secrets into UI state. */
 export function connectionDraft(data: Pick<FormData, "get">, id?: string): Record<string, unknown> {
   const text = (key: string) => String(data.get(key) ?? "");
@@ -26,7 +27,7 @@ export function connectionDraft(data: Pick<FormData, "get">, id?: string): Recor
     keyPath: authMethod === "privateKey" ? keyPath : undefined,
     openSsh: linked ? { alias: host, configPath: text("openSshConfigPath").trim() || undefined, shareConnection: text("openSshSharing") !== "config" } : undefined,
     jumpHostId: linked ? undefined : text("jumpHostId").trim() || undefined,
-    groupName: text("groupName").normalize("NFKC").replace(/[\u200B-\u200D\uFEFF]/gu, "").trim().replace(/\s+/gu, " ") || undefined,
+    groupName: folderPath(text("groupName")) || undefined,
     tags: [...new Set(text("tags").split(",").map(tag => tag.trim()).filter(Boolean))],
     notes: text("notes"), favorite: data.get("favorite") === "on",
   };

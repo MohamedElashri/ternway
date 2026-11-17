@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.2 - 2026-11-17
+
+- Give each Settings section its own page with persistent navigation.
+- Add GitHub Dark/Light defaults and eight coordinated workspace/terminal presets.
+- Remove redundant OpenSSH terminal status explanations.
+- Reconnect live or disconnected sessions in the same terminal tab and split pane.
+- Save a custom connection order and organize connections in persistent nested folders.
+
 ## 0.3.1 - 2026-11-07
 
 - Reduce the header space above remote terminal sessions.

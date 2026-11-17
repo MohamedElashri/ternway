@@ -33,6 +33,38 @@ fn fingerprint(draft: &ServerDraft) -> serde_json::Value {
     ])
 }
 impl Store {
+    pub fn connection_order(&self) -> Result<Vec<String>, String> {
+        let db = self.connection.lock().map_err(|e| e.to_string())?;
+        let mut stmt = db
+            .prepare("SELECT server_id FROM connection_order ORDER BY position, server_id")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn set_connection_order(&self, ids: &[String]) -> Result<(), String> {
+        if ids.len() > 10000
+            || ids.iter().collect::<std::collections::HashSet<_>>().len() != ids.len()
+        {
+            return Err("Connection order must contain at most 10,000 unique connections".into());
+        }
+        let mut db = self.connection.lock().map_err(|e| e.to_string())?;
+        let tx = db.transaction().map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM connection_order", [])
+            .map_err(|e| e.to_string())?;
+        for (position, id) in ids.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO connection_order(server_id,position) VALUES(?1,?2)",
+                params![id, position as i64],
+            )
+            .map_err(|_| "A connection no longer exists; the order was not changed".to_string())?;
+        }
+        tx.commit().map_err(|e| e.to_string())
+    }
+
     pub fn import_connection(
         &self,
         draft: &ServerDraft,
@@ -133,8 +165,10 @@ impl Store {
         {
             return Err("Group or tags are too long".into());
         }
+        let group = group.map(|value| if value.trim().is_empty() { Ok(String::new()) } else { crate::connection_folders::normalize_path(&value) }).transpose()?;
         let mut db = self.connection.lock().map_err(|e| e.to_string())?;
         let tx = db.transaction().map_err(|e| e.to_string())?;
+        if let Some(group) = group.as_ref().filter(|value| !value.is_empty()) { crate::connection_folders::ensure_folders(&tx, group)?; }
         for id in ids {
             let exists: bool = tx
                 .query_row(
@@ -267,9 +301,53 @@ pub fn bulk_connection_metadata(
     Ok(())
 }
 
+#[tauri::command(async)]
+pub fn set_connection_order(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    server_ids: Vec<String>,
+) -> Result<(), AppError> {
+    state.store.set_connection_order(&server_ids)?;
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn saved_order_is_atomic_persistent_and_cleans_up_deleted_connections() {
+        let dir = std::env::temp_dir().join(format!("ternway-order-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("db");
+        let vault = dir.join("vault");
+        let store = Store::open(&path, &vault).unwrap();
+        let draft: ServerDraft = serde_json::from_value(
+            serde_json::json!({"name":"qa","host":"first","username":"qa","port":22}),
+        )
+        .unwrap();
+        let a = store.save_server(&draft).unwrap();
+        let b = store.save_server(&draft).unwrap();
+        let order = vec![b.id.clone(), a.id.clone()];
+        store.set_connection_order(&order).unwrap();
+        assert!(store
+            .set_connection_order(&[a.id.clone(), "missing".into()])
+            .is_err());
+        assert!(store
+            .set_connection_order(&[a.id.clone(), a.id.clone()])
+            .is_err());
+        assert_eq!(store.connection_order().unwrap(), order);
+        drop(store);
+        let store = Store::open(&path, &vault).unwrap();
+        assert_eq!(store.connection_order().unwrap(), order);
+        store.delete_server(&b.id).unwrap();
+        assert_eq!(store.connection_order().unwrap(), vec![a.id]);
+        store.set_connection_order(&[]).unwrap();
+        assert!(store.connection_order().unwrap().is_empty());
+        assert!(!vault.exists());
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn repeated_import_reconciles_without_duplicate_or_personal_metadata_loss() {
         let dir = std::env::temp_dir().join(format!("ternway-import-{}", uuid::Uuid::new_v4()));

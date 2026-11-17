@@ -1,3 +1,4 @@
+import { themePreset, DEFAULT_THEME_ID } from "./theme-presets.ts";
 // Interprets Ghostty-format config entries (read and include-resolved by src-tauri/src/config.rs).
 // Later entries win, like Ghostty. Keys ternway does not implement are reported, not errors.
 
@@ -291,14 +292,8 @@ export function themeName(value: string, dark: boolean): string {
   return (dark ? variants.dark : variants.light) ?? variants.dark ?? variants.light ?? value;
 }
 
-/** Dracula, the default terminal theme; the config's theme and colors are layered on top. */
-export const DEFAULT_THEME: XtermTheme = {
-  background: "#282a36", foreground: "#f8f8f2", cursor: "#f8f8f2", cursorAccent: "#282a36",
-  selectionBackground: "#44475a", selectionForeground: "#f8f8f2",
-  black: "#21222c", red: "#ff5555", green: "#50fa7b", yellow: "#f1fa8c", blue: "#bd93f9", magenta: "#ff79c6",
-  cyan: "#8be9fd", white: "#f8f8f2", brightBlack: "#6272a4", brightRed: "#ff6e6e", brightGreen: "#69ff94",
-  brightYellow: "#ffffa5", brightBlue: "#d6acff", brightMagenta: "#ff92df", brightCyan: "#a4ffff", brightWhite: "#ffffff",
-};
+/** GitHub Dark is the initial fallback; the selected workspace preset is layered at runtime. */
+export const DEFAULT_THEME: XtermTheme = { ...themePreset(DEFAULT_THEME_ID).terminal };
 
 const ANSI_NAMES = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
   "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"] as const;

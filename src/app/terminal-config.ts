@@ -1,6 +1,7 @@
+import { namedTheme, themePreset, type ThemePreset } from "./theme-presets";
 import { invoke } from "@tauri-apps/api/core";
 import { errorText } from "./command-client";
-import { DEFAULT_THEME, fontSizePx, hostMatches, keybindLines, parseColors, parseConfig, scrollbackLines, themeName, xtermTheme, type ColorConfig, type ConfigEntry, type TerminalConfig } from "./config";
+import { fontSizePx, hostMatches, keybindLines, parseColors, parseConfig, scrollbackLines, themeName, xtermTheme, type ColorConfig, type ConfigEntry, type TerminalConfig } from "./config";
 import { LINUX_DEFAULTS, MACOS_DEFAULTS, parseKeybindings, quickTerminalShortcut } from "./keybindings";
 import { platform, quickMode, state, type ResolvedProfile } from "./state";
 import { applyTerminalAppearance } from "./terminal";
@@ -49,38 +50,47 @@ export function profileForServer(server: { host: string; name: string }): string
   return undefined;
 }
 
-async function resolveTheme(config: TerminalConfig, errors: string[]): Promise<ResolvedProfile> {
+async function resolveTheme(config: TerminalConfig, errors: string[], preset: ThemePreset): Promise<ResolvedProfile> {
+  let base = preset.terminal;
   let themeColors: ColorConfig | null = null;
   if (config.theme) {
     try {
-      themeColors = parseColors(await invoke<ConfigEntry[]>("load_theme", { name: themeName(config.theme, state.darkMode) }));
+      themeColors = parseColors(await invoke<ConfigEntry[]>("load_theme", { name: themeName(config.theme, preset.mode === "dark") }));
     } catch (error) {
-      errors.push(errorText(error));
+      const bundled = namedTheme(themeName(config.theme, preset.mode === "dark"));
+      if (bundled) base = bundled.terminal;
+      else errors.push(errorText(error));
     }
   }
-  return { config, theme: xtermTheme(DEFAULT_THEME, themeColors, config.colors) };
+  return { config, theme: xtermTheme(base, themeColors, config.colors) };
 }
+
+let configLoadVersion = 0;
 
 /** Reads ~/.config/ternway/config, its includes and profiles, and applies them to open terminals. */
 export async function loadTerminalConfig(announce = false): Promise<void> {
+  const version = ++configLoadVersion;
+  const preset = themePreset(state.themeId);
   let loaded: LoadedConfig;
   try {
     loaded = await invoke<LoadedConfig>("load_config");
   } catch (error) {
+    if (version !== configLoadVersion) return;
     state.terminalConfig = { ...state.terminalConfig, errors: [errorText(error)] };
     if (announce) showToast(`Could not read the config: ${errorText(error)}`, "info");
     return;
   }
   const { config, ignored, errors } = parseConfig(loaded.entries);
-  const base = await resolveTheme(config, errors);
+  const base = await resolveTheme(config, errors, preset);
   const profiles = new Map<string, ResolvedProfile>();
   for (const profile of loaded.profiles) {
     // Report problems in the profile file itself, not the main config again.
     const own = parseConfig(profile.entries);
     errors.push(...own.errors.map((error) => `profile ${profile.name}: ${error}`));
     ignored.push(...own.ignored.map((key) => `${key} (profile ${profile.name})`));
-    profiles.set(profile.name, await resolveTheme(parseConfig([...loaded.entries, ...profile.entries]).config, errors));
+    profiles.set(profile.name, await resolveTheme(parseConfig([...loaded.entries, ...profile.entries]).config, errors, preset));
   }
+  if (version !== configLoadVersion) return;
   state.terminalConfig = { path: loaded.path, ...base, profiles, ignored, errors: [...loaded.errors, ...errors] };
   state.keybindings = parseKeybindings(keybindLines(platform === "macos" ? MACOS_DEFAULTS : LINUX_DEFAULTS, config.keybinds));
   if (!quickMode) {
@@ -92,6 +102,7 @@ export async function loadTerminalConfig(announce = false): Promise<void> {
       shortcut: quickTerminalShortcut(config.keybinds),
     }).catch((error) => state.terminalConfig.errors.push(errorText(error)));
   }
+  if (version !== configLoadVersion) return;
   applyTerminalAppearance();
   if (announce) {
     const problems = state.terminalConfig.errors.length;

@@ -180,7 +180,40 @@ try:
 
     click('[data-action="credential-settings"]')
     sections = execute("return Array.from(document.querySelectorAll('.settings-nav button')).map(el=>el.textContent.trim());")
+    assert sections == ['Appearance', 'Terminal', 'Connections', 'Security', 'Updates', 'About'], sections
+    assert execute("return document.querySelectorAll('.settings-group').length===1 && !!document.querySelector('#settings-appearance') && !document.querySelector('#settings-terminal');")
+    click('[data-settings-page="terminal"]')
+    assert execute("return !!document.querySelector('[data-field=terminal-renderer]') && !document.querySelector('#settings-appearance');")
+    click('[data-settings-page="security"]')
+    assert execute("return !!document.querySelector('[data-action=lock-vault]') && !document.querySelector('[data-field=terminal-renderer]');")
+    click('[data-settings-page="about"]')
+    wait(lambda: execute("return !!document.querySelector('.settings-content .about-details') && !document.querySelector('#settings-security');"), 'About settings page')
+    click('[data-settings-page="appearance"]')
+    request('POST', f'/session/{session}/window/rect', {'width':640, 'height':480})
+    assert execute("const modal=document.querySelector('.modal-settings'), nav=document.querySelector('.settings-nav'), footer=document.querySelector('.settings-footer');return modal.scrollHeight<=modal.clientHeight+1 && nav.getBoundingClientRect().top>=0 && footer.getBoundingClientRect().bottom<=window.innerHeight;")
+    screenshot('settings-pages-narrow.png')
+    request('POST', f'/session/{session}/window/rect', {'width':1400, 'height':900})
+    screenshot('settings-pages.png')
+
     assert sections[-1] == "About", sections
+    assert execute("return document.querySelector('#app').dataset.colorTheme;") == 'github-dark'
+    theme_backgrounds = [('github-light','#ffffff'), ('github-dark','#0d1117'), ('github-dark-dimmed','#22272e'), ('github-light-high-contrast','#ffffff'), ('github-dark-high-contrast','#0a0c10'), ('github-light-colorblind','#ffffff'), ('github-dark-colorblind','#0d1117'), ('dracula','#282a36')]
+    for theme_id, background in theme_backgrounds:
+        click(f'[data-theme-id="{theme_id}"]')
+        wait(lambda: execute("return document.querySelector('#app').dataset.colorTheme===arguments[0] && getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()===arguments[1];", theme_id, background), f'live {theme_id} workspace and terminal palette')
+        assert execute("return document.querySelector('.terminal-layer').textContent.includes(arguments[0]);", expected), 'Theme changes preserve terminal output'
+        if theme_id in ['github-dark','github-light']:
+            screenshot(theme_id + '.png')
+    original_config = (config / 'config').read_text()
+    (config / 'config').write_text(original_config + 'background = #123456\n')
+    wait(lambda: execute("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#123456';"), 'explicit terminal color applied')
+    click('[data-theme-id="github-light"]')
+    wait(lambda: execute("return document.querySelector('#app').dataset.colorTheme==='github-light' && getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#123456';"), 'terminal config color survives workspace theme change')
+    (config / 'config').write_text(original_config)
+    wait(lambda: execute("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#ffffff';"), 'terminal returns to preset after removing color override')
+    click('[data-theme-id="github-dark-dimmed"]')
+    wait(lambda: execute("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#22272e';"), 'dimmed palette restored')
+    check('all built-in themes apply live without losing terminal output and preserve explicit config colors')
     click('[data-action="close-modal"]')
     click('[data-action="theme"]')
     if execute("return document.querySelector('[data-theme]')?.dataset.theme;") != "dark":
@@ -231,6 +264,44 @@ try:
         screenshot(f"ssh-import-dark-{attempt}.png")
         click('[data-action="close-modal"]')
     check("native SSH import excludes Git by default, stays readable and deduplicates repeat imports")
+
+    saved_connection = next(server for server in invoke('get_state')['servers'] if server['name'] == 'CI save only')
+    click('[data-action="connection-folders"]')
+    click('[data-action="create-connection-folder"]')
+    type_into('[data-form="input-prompt"] [name="value"]', 'Work/Production')
+    click('[data-form="input-prompt"] button[type="submit"]')
+    wait(lambda: 'Work/Production' in invoke('get_state')['connectionFolders'], 'nested folder persisted')
+    click(f'[data-action="move-connection-folder"][data-connection-id="{saved_connection["id"]}"]')
+    type_into('[data-form="input-prompt"] [name="value"]', 'Work/Production')
+    click('[data-form="input-prompt"] button[type="submit"]')
+    wait(lambda: next(server for server in invoke('get_state')['servers'] if server['id'] == saved_connection['id'])['groupName'] == 'Work/Production', 'connection moved into folder')
+    click('[data-action="rename-connection-folder"][data-folder="Work"]')
+    type_into('[data-form="input-prompt"] [name="value"]', 'Company')
+    click('[data-form="input-prompt"] button[type="submit"]')
+    wait(lambda: 'Company/Production' in invoke('get_state')['connectionFolders'], 'folder subtree renamed')
+    click('[data-action="create-connection-folder"]')
+    click('[data-form="input-prompt"] [data-action="close-modal"]')
+    wait(lambda: shown('[data-action="create-connection-folder"]'), 'cancel returns to folder manager')
+    click('[data-action="close-modal"]')
+    assert shown('[data-connection-group="folder:company/production"]')
+    assert execute("return document.querySelector('.connection-folder .server-item-copy').getBoundingClientRect().width >= 100;"), 'Nested connection names need room beside row actions'
+    screenshot('connection-folders.png')
+    check('folder UI creates nested folders, moves connections, renames subtrees and returns on cancel')
+    other_connection = next(server for server in invoke('get_state')['servers'] if server['id'] != saved_connection['id'])
+    click('[data-action="connection-folders"]')
+    click(f'[data-action="move-connection-folder"][data-connection-id="{other_connection["id"]}"]')
+    type_into('[data-form="input-prompt"] [name="value"]', 'Company/Production')
+    click('[data-form="input-prompt"] button[type="submit"]')
+    wait(lambda: next(server for server in invoke('get_state')['servers'] if server['id'] == other_connection['id'])['groupName'] == 'Company/Production', 'second connection moved into folder')
+    click('[data-action="close-modal"]')
+    click('[data-action="connection-order"]')
+    original_order = execute("return Array.from(document.querySelectorAll('.connection-order-row')).map(row=>row.querySelector('[data-connection-id]').dataset.connectionId);")
+    click(f'[data-action="move-connection-down"][data-connection-id="{original_order[0]}"]')
+    wait(lambda: invoke('get_state')['connectionOrder'] == list(reversed(original_order)), 'connection order persisted inside nested folder')
+    click('[data-action="close-modal"]')
+    wait(lambda: execute("return Array.from(document.querySelectorAll('[data-connection-group=\"folder:company/production\"] .server-item')).map(row=>row.dataset.serverId);") == list(reversed(original_order)), 'sidebar reflects saved ordering')
+    screenshot('connection-order-folders.png')
+    check('saved connection order agrees with sidebar order inside nested folders')
 
     backup = root / "library.json"
     invoke("export_library_backup", path=str(backup), includeSecrets=False)
@@ -283,15 +354,23 @@ try:
         compact_terminal_geometry()
     screenshot('remote-terminal-compact.png')
     click('[data-action="clear-terminal"]')
+    live_group = execute("return document.querySelector('.term-tab.active').dataset.tabGroup;")
+    live_pane = execute("return document.querySelector('.term-tab.active').dataset.terminalTab;")
+    click('[data-action="reconnect-terminal"]')
+    wait(lambda: execute("return document.querySelector('.term-tab.active').dataset.terminalTab !== arguments[0] && !document.querySelector('[data-action=\"reconnect-terminal\"]').disabled;", live_pane), 'live reconnect replaces the session in the same tab')
+    assert execute("return document.querySelector('.term-tab.active').dataset.tabGroup;") == live_group
+    wait(lambda: execute("return document.querySelector('.terminal-layer')?.textContent.includes('fixture-terminal-ready');"), 'live reconnected shell ready')
     remote_input('exit\n')
-    wait(lambda: shown('[data-action="reconnect-terminal"]'), 'disconnected terminal keeps reconnect accessible')
+    wait(lambda: execute("return document.querySelector('.terminal-session-status')?.textContent.includes('Disconnected');"), 'disconnected terminal keeps reconnect accessible')
     assert execute("return document.querySelector('.nav-item[data-view=dashboard]')?.disabled===false && document.querySelector('.nav-item[data-view=files]')?.disabled===false;"), 'Exiting a shell must not disable tools on its still-authenticated SSH connection'
     compact_terminal_geometry()
+    exited_pane = execute("return document.querySelector('.term-tab.active').dataset.terminalTab;")
     click('[data-action="reconnect-terminal"]')
+    wait(lambda: execute("return document.querySelector('.term-tab.active').dataset.terminalTab !== arguments[0] && !document.querySelector('[data-action=\"reconnect-terminal\"]').disabled;", exited_pane), 'disconnected reconnect replaces the exited session')
     wait(lambda: execute("return document.querySelector('.terminal-layer')?.textContent.includes('fixture-terminal-ready');"), 'reconnected SSH terminal')
     assert not execute("return document.querySelector('.terminal-layer')?.textContent.includes('CI_REMOTE_λ_漢字');"), 'Reconnect must not replay terminal input'
     remote_input('exit\n')
-    wait(lambda: shown('[data-action="reconnect-terminal"]'), 'fixture terminal cleanup')
+    wait(lambda: execute("return document.querySelector('.terminal-session-status')?.textContent.includes('Disconnected');"), 'fixture terminal cleanup')
     assert execute("return document.querySelector('.nav-item[data-view=dashboard]')?.disabled===false;"), 'SSH tools must remain available immediately after the last terminal exits'
     request('POST', f'/session/{session}/window/rect', {'width':1400, 'height':900})
     wait(lambda: execute('return Math.abs(window.innerWidth-1400)<=16;'), 'desktop viewport restored after narrow terminal checks')
@@ -333,6 +412,7 @@ try:
     upload.write_bytes(bytes(range(256)) * 32768)
     job = invoke('enqueue_transfer', serverId=server_id, direction='upload', localPath=str(upload), remotePath='/')
     click('[data-action="credential-settings"]')
+    click('[data-settings-page="connections"]')
     click('[data-action="transfer-queue"]')
     click('[data-action="run-transfer-queue"]')
     wait(lambda: any(p.stat().st_size > 0 for p in (fixture_root / 'files').glob('.fixture-upload.bin.*.part')), 'partial upload before pause')
@@ -388,6 +468,7 @@ try:
     session = None
     (data_dir / "transfers.json").write_text("damaged test queue")
     start()
+    assert execute("return document.querySelector('#app').dataset.colorTheme;") == 'github-dark-dimmed', 'Selected theme survives restart'
     wait(lambda: execute("return document.body.textContent.includes('Start session');"), "restored dormant panes")
     assert not execute("return document.body.textContent.includes(arguments[0]);", expected), "Private scrollback should not be restored by default"
     assert "retained" in invoke("transfer_queue_notice")

@@ -20,6 +20,18 @@
 
 Remote features detect what each server supports instead of assuming a distribution or init system.
 
+## Organizing connections
+
+Use **Reorder connections** beside the sidebar heading to move saved connections up or down
+within their folder. The order is saved across restarts and included in library backups.
+**Use automatic order** restores sorting by favorites, recent use and name.
+
+Use **Organize folders** beside the Connections heading to create folders, move connections,
+or rename and move whole folders. Use paths such as `Work/Production` for nested folders.
+Folders can stay empty. Existing connection groups appear as folders automatically.
+Removing a folder moves its connections to Ungrouped. Folder organization is saved across
+restarts, shared between windows and included in library backups.
+
 ## Keybindings
 
 Ghostty's defaults on Linux and iTerm2's on macOS. Every other key goes to the shell.
@@ -57,6 +69,10 @@ to that pane's directory (or the home directory) after asking. In a server's Net
 button on a listening TCP port forwards it to `localhost` in one click. Saved commands appear in the
 command palette and are typed into the focused pane for you to run.
 Bindings can be changed with `keybind =` lines in the config.
+
+Use **Reconnect** in the remote terminal bar to open a fresh session in the focused pane,
+including when the current connection is still running. The tab and split layout stay in place;
+previous commands are not replayed. The button is disabled while a session is opening.
 
 ## Terminals beside server views
 
@@ -206,3 +222,12 @@ omitted, the test uses SSH_AUTH_SOCK. The check enforces known_hosts, runs a fix
 read-only printf command, disconnects and removes its temporary profile store.
 A separate opt-in 1Password regression remains available. Protocol support does
 not guarantee support for every provider policy, key type or agent extension.
+
+Settings uses separate Appearance, Terminal, Connections, Security, Updates and About pages.
+Choose a page in the navigation; only that page is shown. Arrow keys, Home and End also switch
+pages when the navigation has focus. The page scrolls independently while navigation and Done stay visible.
+
+Choose a workspace color preset in Settings → Appearance. GitHub Dark and GitHub Light are the
+defaults; dimmed, high-contrast, colorblind and Dracula presets are also included. Previews apply
+live to the workspace and fallback terminal palette. The light/dark shortcut remembers your last
+choice in each mode. Explicit terminal config and profile colors keep priority. See [theme details](docs/THEMES.md).

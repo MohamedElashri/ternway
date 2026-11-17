@@ -66,6 +66,7 @@ export async function changeMasterPasswordForm(form: HTMLFormElement): Promise<v
     state.errorMessage = "";
     state.credentialSettingsError = "";
     state.credentialSettingsNotice = "Master password changed. All saved credentials were re-encrypted with the new password.";
+    state.settingsPage = "security";
     state.modal = "security";
     render();
   } catch (error) {
@@ -103,6 +104,7 @@ export async function resetCredentialsForm(form: HTMLFormElement): Promise<void>
     state.errorMessage = "";
     state.credentialSettingsError = "";
     state.credentialSettingsNotice = "All saved credentials were deleted. Your server profiles are still here.";
+    state.settingsPage = "security";
     state.modal = "security";
     render();
   } catch (error) {

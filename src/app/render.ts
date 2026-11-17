@@ -1,3 +1,8 @@
+import { orderedConnections } from "./connection-order";
+import { folderPath, renderConnectionFolders } from "./connection-folders";
+import { settingsFocusKey, restoreSettingsFocus } from "./settings-pages";
+
+import { applyThemeTokens, themePreset } from "./theme-presets";
 import { collapsedGroups } from "./connection-groups";
 import { unavailableToolReason } from "./navigation";
 import { icon } from "../icons";
@@ -21,10 +26,12 @@ import { scrollCommandResultsIntoView, scrollContainerLogsIntoView, viewTransiti
 
 export function render(): void {
   const previousFocus = document.activeElement;
+  const settingsFocus = settingsFocusKey(previousFocus);
   const previousConnectionForm = root.querySelector<HTMLFormElement>('form[data-form="server"]');
   const previousImportForm = root.querySelector<HTMLFormElement>('form[data-form="ssh-import"]');
   const previousPasswordForm = root.querySelector<HTMLFormElement>('form[data-form="ssh-password"]');
-  const settingsScroll = root.querySelector<HTMLElement>(".modal-settings")?.scrollTop;
+  const settingsPanel = root.querySelector<HTMLElement>(".settings-content[data-settings-page-panel]");
+  const settingsScroll = settingsPanel ? { page: settingsPanel.dataset.settingsPagePanel, top: settingsPanel.scrollTop } : undefined;
   const previousContent = root.querySelector<HTMLElement>(".dock-main") ?? root.querySelector<HTMLElement>(".content-area");
   const previousServerList = root.querySelector<HTMLElement>(".server-list");
   const previousNavigation = root.querySelector<HTMLElement>(".nav-section");
@@ -32,13 +39,15 @@ export function render(): void {
   if (previousServerList) sidebarScrollPositions.servers = previousServerList.scrollTop;
   if (previousNavigation) sidebarScrollPositions.navigation = previousNavigation.scrollTop;
   const nextLocation = state.activeWorkspaceTabId ? `${state.activeWorkspaceTabId}:${state.activeView}` : "welcome";
+  applyThemeTokens(document.documentElement, themePreset(state.themeId));
   root.dataset.theme = state.darkMode ? "dark" : "light";
+  root.dataset.colorTheme = state.themeId;
   root.innerHTML = quickMode ? renderQuickShell() : `${renderTitlebar()}${state.loading ? renderLoading() : renderShell()}`;
   restoreConnectionForm(root, previousConnectionForm);
   restoreConnectionForm(root, previousPasswordForm);
   restoreConnectionForm(root, previousImportForm);
-  const nextSettings = root.querySelector<HTMLElement>(".modal-settings");
-  if (nextSettings && settingsScroll !== undefined) nextSettings.scrollTop = settingsScroll;
+  const nextSettings = root.querySelector<HTMLElement>(".settings-content[data-settings-page-panel]");
+  if (nextSettings && settingsScroll && settingsScroll.page === nextSettings.dataset.settingsPagePanel) nextSettings.scrollTop = settingsScroll.top;
   const nextContent = root.querySelector<HTMLElement>(".dock-main") ?? root.querySelector<HTMLElement>(".content-area");
   const nextServerList = root.querySelector<HTMLElement>(".server-list");
   const nextNavigation = root.querySelector<HTMLElement>(".nav-section");
@@ -59,6 +68,7 @@ export function render(): void {
   state.renderedLocation = nextLocation;
   mountTerminal();
   focusModal(root, previousFocus);
+  restoreSettingsFocus(root, settingsFocus);
 }
 
 function activeGroupTitle(): string | undefined {
@@ -106,11 +116,7 @@ export function renderOperationBanner(): string {
 
 export function filteredServers(): ServerProfile[] {
   const query = state.serverQuery.trim().toLowerCase();
-  const servers = state.snapshot.servers.filter((server) => `${server.name} ${server.host} ${server.groupName ?? ""} ${server.tags.join(" ")} ${server.notes}`.toLowerCase().includes(query)).sort((left, right) => {
-    if (left.favorite !== right.favorite) return left.favorite ? -1 : 1;
-    const recent = (right.lastConnectedAt ?? "").localeCompare(left.lastConnectedAt ?? "");
-    return recent || left.name.localeCompare(right.name);
-  });
+  const servers = orderedConnections(state.snapshot.servers, state.snapshot.connectionOrder).filter((server) => `${server.name} ${server.host} ${server.groupName ?? ""} ${server.tags.join(" ")} ${server.notes}`.toLowerCase().includes(query));
   if (state.sidebarCopyPlacement) {
     const sourceIndex = servers.findIndex((server) => server.id === state.sidebarCopyPlacement?.sourceId);
     const copyIndex = servers.findIndex((server) => server.id === state.sidebarCopyPlacement?.copyId);
@@ -123,23 +129,16 @@ export function filteredServers(): ServerProfile[] {
 }
 
 export function normalizedGroupName(groupName?: string): string {
-  return groupName?.normalize("NFKC").replace(/[\u200B-\u200D\uFEFF]/gu, "").trim().replace(/\s+/gu, " ") ?? "";
+  return folderPath(groupName);
 }
 
 export function groupKey(groupName?: string): string {
-  return (normalizedGroupName(groupName) || "Ungrouped").toLocaleLowerCase();
+  const path = normalizedGroupName(groupName);
+  return path ? `folder:${path.toLocaleLowerCase()}` : "ungrouped";
 }
 
 export function renderServerGroups(servers: ServerProfile[]): string {
-  const grouped = new Map<string, { label: string; servers: ServerProfile[] }>();
-  for (const server of servers) {
-    const label = normalizedGroupName(server.groupName) || "Ungrouped";
-    const key = groupKey(label);
-    const group = grouped.get(key) ?? { label, servers: [] };
-    group.servers.push(server);
-    grouped.set(key, group);
-  }
-  return [...grouped.values()].map(({ label, servers: items }) => `<details class="server-group" data-connection-group="${escapeHtml(groupKey(label))}" ${state.serverQuery || !collapsedGroups.has(groupKey(label)) ? "open" : ""}><summary class="server-group-label"><span class="group-label-full">${escapeHtml(label)}</span><span class="group-label-short" aria-hidden="true">${escapeHtml(shortGroupLabel(label))}</span><span class="group-count">${items.length}</span><button class="icon-button group-edit" data-action="rename-connection-group" data-group="${escapeHtml(groupKey(label))}" data-label="${escapeHtml(label === "Ungrouped" ? "" : label)}" aria-label="Move connections in ${escapeHtml(label)}" title="Rename or move group">${icon("edit")}</button></summary>${items.map(renderServerItem).join("")}</details>`).join("");
+  return renderConnectionFolders(servers, state.snapshot.connectionFolders ?? [], collapsedGroups, Boolean(state.serverQuery.trim()), renderServerItem);
 }
 
 export function shortGroupLabel(group: string): string {
@@ -153,10 +152,10 @@ export function renderServerRail(): string {
     <div class="server-rail-flyout">
       <div class="rail-brand"><span class="brand-mark">${icon("logo")}</span><span class="rail-brand-name">Ternway</span></div>
       <div class="sidebar-section server-section">
-        <div class="section-label-row"><span class="section-label">Connections</span></div>
+        <div class="section-label-row"><span class="section-label">Connections</span><button class="icon-button" data-action="connection-order" aria-label="Reorder connections" title="Reorder connections">${icon("sort")}</button><button class="icon-button" data-action="connection-folders" aria-label="Organize connection folders" title="Organize folders">${icon("folder")}</button></div>
         <label class="sidebar-search"><span>${icon("search")}</span><input data-field="server-search" value="${escapeHtml(state.serverQuery)}" placeholder="Search connections…" aria-label="Search connections and notes"/><kbd>${platform === "macos" ? "⌘" : "Ctrl"} K</kbd></label>
         <div class="server-list">
-          ${servers.length ? renderServerGroups(servers) : `<div class="server-empty">${query ? "No matching connections" : "Add your first SSH connection"}</div>`}
+          ${servers.length || (!query && state.snapshot.connectionFolders?.length) ? renderServerGroups(servers) : `<div class="server-empty">${query ? "No matching connections" : "Add your first SSH connection"}</div>`}
         </div>
       </div>
       <div class="rail-utilities">

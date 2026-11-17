@@ -15,6 +15,8 @@ const TABLES: &[(&str,&str)] = &[
     ("identities","id,name,username,provider,reference"),
     ("servers","id,name,host,username,port,auth_method,key_path,group_name,tags_json,favorite,created_at,updated_at,last_connected_at,jump_host_id"),
     ("server_notes","server_id,notes,updated_at"),
+    ("connection_folders","path"),
+    ("connection_order","server_id,position"),
     ("connection_identities","server_id,identity_id"),
     ("openssh_connections","server_id,reference_json"),
     ("password_references","server_id,reference_json"),
@@ -56,8 +58,11 @@ fn bounded_read(path: &Path) -> Result<Vec<u8>, String> {
 fn read(path: &Path) -> Result<(Backup, String), String> {
     let bytes = bounded_read(path)?;
     let checksum = format!("{:x}", Sha256::digest(&bytes));
-    let backup: Backup =
+    let mut backup: Backup =
         serde_json::from_slice(&bytes).map_err(|_| "Invalid Ternway backup".to_string())?;
+    // Older version 1 backups have groups but no explicit empty folders.
+    backup.tables.entry("connection_folders".into()).or_default();
+    backup.tables.entry("connection_order".into()).or_default();
     if backup.format != "ternway-library"
         || backup.version != 1
         || backup.tables.len() != TABLES.len()
@@ -113,7 +118,7 @@ fn dump(db: &Connection, vault: Option<Vec<u8>>) -> Result<Backup, String> {
     })
 }
 fn apply(db: &Connection, backup: &Backup) -> Result<(), String> {
-    db.execute_batch("PRAGMA defer_foreign_keys=ON; DELETE FROM servers; DELETE FROM identities; DELETE FROM saved_commands; DELETE FROM tunnels;").map_err(|e|e.to_string())?;
+    db.execute_batch("PRAGMA defer_foreign_keys=ON; DELETE FROM servers; DELETE FROM identities; DELETE FROM saved_commands; DELETE FROM tunnels; DELETE FROM connection_folders;").map_err(|e|e.to_string())?;
     for (table, columns) in TABLES {
         let params = (1..=columns.split(',').count())
             .map(|n| format!("?{n}"))
@@ -136,6 +141,9 @@ fn apply(db: &Connection, backup: &Backup) -> Result<(), String> {
                 .execute(params_from_iter(values))
                 .map_err(|_| format!("Invalid or conflicting entries in backup {table}"))?;
         }
+    }
+    for row in &backup.tables["connection_folders"] {
+        crate::connection_folders::normalize_path(row[0].as_str().ok_or("Invalid folder path")?)?;
     }
     for row in &backup.tables["password_references"] {
         let reference: crate::secret_provider::PasswordReference =
@@ -311,12 +319,31 @@ pub fn restore_library_backup(
 mod tests {
     use super::*;
     #[test]
+    fn old_backups_without_explicit_folders_remain_restorable() {
+        let dir = std::env::temp_dir().join(format!("ternway-old-folders-{}", uuid::Uuid::new_v4()));
+        let store = Store::open(&dir.join("db"), &dir.join("vault")).unwrap();
+        let path = dir.join("old.json");
+        store.export_backup(&path, false).unwrap();
+        let (mut backup, _) = read(&path).unwrap();
+        backup.tables.remove("connection_folders");
+        backup.tables.remove("connection_order");
+        std::fs::write(&path, serde_json::to_vec(&backup).unwrap()).unwrap();
+        let (_, checksum) = read(&path).unwrap();
+        store.create_connection_folder("RemoveOnRestore").unwrap();
+        store.restore_backup(&path, &checksum, &dir.join("recovery.json")).unwrap();
+        assert!(store.connection_folders().unwrap().is_empty());
+        drop(store); std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn backup_roundtrip_is_versioned_secret_opt_in_and_restore_is_transactional() {
         let dir = std::env::temp_dir().join(format!("ternway-backup-{}", uuid::Uuid::new_v4()));
         let store = Store::open(&dir.join("db"), &dir.join("vault")).unwrap();
         store.unlock_credentials("fixture vault password").unwrap();
         let draft:crate::models::ServerDraft=serde_json::from_value(serde_json::json!({"name":"QA","host":"localhost","username":"qa","port":22,"password":"fixture SSH secret"})).unwrap();
         let server = store.save_server(&draft).unwrap();
+        store.create_connection_folder("Empty/Nested").unwrap();
+        store.set_connection_order(&[server.id.clone()]).unwrap();
         let metadata = dir.join("metadata.json");
         let full = dir.join("full.json");
         store.export_backup(&metadata, false).unwrap();
@@ -330,6 +357,8 @@ mod tests {
         store
             .restore_backup(&full, &checksum, &dir.join("rollback.json"))
             .unwrap();
+        assert_eq!(store.connection_folders().unwrap(), vec!["Empty", "Empty/Nested"]);
+        assert_eq!(store.connection_order().unwrap(), vec![server.id.clone()]);
         assert!(!store.credential_status().unlocked);
         store.unlock_credentials("fixture vault password").unwrap();
         assert_eq!(
