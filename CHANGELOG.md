@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 - 2026-11-17
+
+- Add GUI controls for terminal settings, profiles and includes, with config-file persistence and protection against external edit conflicts.
+- Support the 14 previously ignored terminal preferences for windows, clipboard access, selection timing, underline position and automatic updates.
+- Import a whole SSH config or choose hosts, with file browsing, search, duplicate previews, progress and retry.
+- Make connection dragging and folder edits responsive without rebuilding terminals or rescanning SSH files for every move.
+- Preserve rapid organization changes, handle cancelled drags and validate folder subtree changes atomically.
+- Keep terminal clipboard requests ordered and bound to the originating session, with access denied by default.
+
 ## 0.4.1 - 2026-11-17
 
 - Restore native Linux window controls and edge resizing, with a single title bar.
