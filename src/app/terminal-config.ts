@@ -74,9 +74,22 @@ async function resolveTheme(config: TerminalConfig, errors: string[], preset: Th
 }
 
 let configLoadVersion = 0;
+let latestConfigLoad: Promise<void> = Promise.resolve();
+
+/** Callers that save a profile must observe the newest in-flight watcher reload too. */
+export async function loadTerminalConfig(announce = false): Promise<void> {
+  const loading = readTerminalConfig(announce);
+  latestConfigLoad = loading;
+  await loading;
+  let observed = loading;
+  while (observed !== latestConfigLoad) {
+    observed = latestConfigLoad;
+    await observed;
+  }
+}
 
 /** Reads ~/.config/ternway/config, its includes and profiles, and applies them to open terminals. */
-export async function loadTerminalConfig(announce = false): Promise<void> {
+async function readTerminalConfig(announce = false): Promise<void> {
   const version = ++configLoadVersion;
   let loaded: LoadedConfig;
   try {
