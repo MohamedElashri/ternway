@@ -104,7 +104,7 @@ def click(selector):
     raise AssertionError(f'Continuously replaced click target: {selector}')
 
 def type_into(selector, text):
-    target = element(selector)
+    target = wait(lambda: element(selector), f'input ready: {selector}')
     request("POST", f"/session/{session}/element/{target}/clear", {})
     request("POST", f"/session/{session}/element/{target}/value", {"text": text, "value": list(text)})
 
