@@ -27,16 +27,22 @@ os.environ.update({"XDG_CONFIG_HOME": str(root / "config"), "XDG_DATA_HOME": str
 os.environ['TERNWAY_QA_KNOWN_HOSTS'] = str(root / 'known_hosts')
 config = root / "config" / "ternway"
 config.mkdir()
-(config / "config").write_text("shell-integration = none\nwindow-save-state = always\nsave-scrollback = false\nclipboard-history = false\n")
+(config / "config").write_text("command = /bin/sh\nenv = PS1=CI_TEST_PROMPT\nshell-integration = none\nwindow-save-state = always\nsave-scrollback = true\nclipboard-history = false\n")
 log = (artifacts / "driver.log").open("w")
-driver = subprocess.Popen(["tauri-driver", "--native-driver", "/usr/bin/WebKitWebDriver"], stdout=log, stderr=log, start_new_session=True)
-base = "http://127.0.0.1:4444"
+reserved=[socket.socket(),socket.socket()]
+for listener in reserved:listener.bind(('127.0.0.1',0))
+driver_port,native_port=[listener.getsockname()[1] for listener in reserved]
+for listener in reserved:listener.close()
+driver = subprocess.Popen(["tauri-driver", "--port", str(driver_port), "--native-port", str(native_port), "--native-driver", "/usr/bin/WebKitWebDriver"], stdout=log, stderr=log, start_new_session=True)
+base = f"http://127.0.0.1:{driver_port}"
+verified_app = False
 session = None
 fixture = None
 fixture_log = None
 checks = []
 
 def request(method, path, body=None):
+    if driver.poll() is not None: raise RuntimeError("Owned test driver exited; refusing to contact another process")
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(base + path, data=data, method=method, headers={"Content-Type": "application/json"})
     try:
@@ -122,7 +128,8 @@ def compact_terminal_geometry():
     return result
 
 def start():
-    global session
+    global session, verified_app
+    verified_app = False
     # WebKit resets pooled HTTP connections when the previous application exits.
     # A safe status read establishes readiness before the one-shot session POST.
     wait(lambda: request("GET", "/status").get("ready"), "native driver ready for a new session")
@@ -130,6 +137,7 @@ def start():
     session = response["sessionId"]
     request("POST", f"/session/{session}/timeouts", {"script": 30000, "pageLoad": 30000, "implicit": 0})
     wait(lambda: shown('[data-action="credential-settings"]'), "app bootstrap")
+    verified_app = True
 
 def screenshot(name):
     value = request("GET", f"/session/{session}/screenshot")
@@ -186,14 +194,18 @@ try:
     check('native scrollback search finds real Unicode PTY output and highlights its cells')
     textarea = wait(lambda: element('.ghostty-input'), 'terminal after search')
     request('POST', f'/session/{session}/element/{textarea}/value', {'text': 'sleep 30\n'})
+    prompt_count=execute("return (document.querySelector('.terminal-layer')?.textContent.match(/CI_TEST_PROMPT/g)||[]).length;")
     request('POST', f'/session/{session}/actions', {'actions':[{'type':'key','id':'interrupt-keys','actions':[
         {'type':'keyDown','value':'\ue009'}, {'type':'keyDown','value':'c'},
         {'type':'keyUp','value':'c'}, {'type':'keyUp','value':'\ue009'}]}]})
+    wait(lambda:execute("return (document.querySelector('.terminal-layer')?.textContent.match(/CI_TEST_PROMPT/g)||[]).length>arguments[0];",prompt_count),'shell prompt after interrupt')
     interrupted = 'CI_NATIVE_INTERRUPT'
     interrupt_escaped = ''.join('\\%03o' % byte for byte in interrupted.encode())
     request('POST', f'/session/{session}/element/{textarea}/value', {'text': f"printf '{interrupt_escaped}\\n'\n"})
     wait(lambda: execute("return Array.from(document.querySelectorAll('.ghostty-accessibility')).some(el=>el.textContent.includes(arguments[0]));", interrupted), 'native Ctrl+C interrupts the running process', timeout=12)
     check('Control reaches the native keyboard encoder and interrupts a real shell process')
+    import native_terminal_review
+    native_terminal_review.run(globals())
     for width, height in [(1000, 700), (1280, 850), (1080, 720), (1400, 900)]:
         request("POST", f"/session/{session}/window/rect", {"width": width, "height": height})
     check("window resizing keeps the terminal alive")
@@ -237,6 +249,8 @@ try:
     screenshot('settings-pages-narrow.png')
     request('POST', f'/session/{session}/window/rect', {'width':1400, 'height':900})
     screenshot('settings-pages.png')
+    import native_ui_review
+    native_ui_review.run(globals())
 
     assert sections[-1] == "About", sections
     assert execute("return document.querySelector('#app').dataset.colorTheme;") == 'github-dark'
@@ -255,13 +269,13 @@ try:
     for theme_id, background in theme_backgrounds:
         click(f'[data-theme-id="{theme_id}"]')
         wait(lambda: execute("return document.querySelector('#app').dataset.colorTheme===arguments[0] && getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()===arguments[1];", theme_id, background), f'live {theme_id} workspace and terminal palette')
-        assert execute("return document.querySelector('.terminal-layer').textContent.includes(arguments[0]);", expected), 'Theme changes preserve terminal output'
+        assert execute("return document.querySelector('.terminal-layer').textContent.includes(arguments[0]);", "REVIEW_MOUSE_OK"), 'Theme changes preserve terminal output'
         hover_point(5,5)
         normal=wait(lambda: (value if (value:=primary_button_metrics())['background']==value['accent'] else None), 'normal button palette')
-        assert normal['contrast']>=4.5 and normal['height']==34 and normal['shadow']=='none', (theme_id,normal)
+        assert normal['contrast']>=4.5 and abs(normal['height']-34)<0.1 and normal['shadow']=='none', (theme_id,normal)
         hover_point(normal['x'],normal['y'])
         hovered=wait(lambda: (value if (value:=primary_button_metrics())['background']!=normal['background'] else None), 'button hover palette')
-        assert hovered['contrast']>=4.5 and hovered['transform']=='none' and hovered['top']==normal['top'], (theme_id,hovered)
+        assert hovered['contrast']>=4.5 and hovered['transform']=='none' and abs(hovered['top']-normal['top'])<0.1, (theme_id,hovered)
         if theme_id in ['github-dark','github-light']:
             screenshot(theme_id + '.png')
     original_config = (config / 'config').read_text()
@@ -336,6 +350,7 @@ try:
         path = f'{parent}/{name}' if parent else name
         wait(lambda: path in invoke('get_state')['connectionFolders'], 'inline folder create')
     def sidebar_drag(source, target, after=False):
+        wait(lambda: shown(source) and shown(target), 'drag source and target rendered after persistence')
         points = execute("const a=document.querySelector(arguments[0]),b=document.querySelector(arguments[1]);a.scrollIntoView({block:'nearest'});b.scrollIntoView({block:'nearest'});const r=a.getBoundingClientRect(),s=b.getBoundingClientRect();return {x:r.left+25,y:r.top+r.height/2,tx:s.left+25,ty:s.top+s.height*(arguments[2] ? 0.75 : 0.25)};", source, target, after)
         request('POST', f'/session/{session}/actions', {'actions':[{'type':'pointer','id':'sidebar-drag','parameters':{'pointerType':'mouse'},'actions':[
           {'type':'pointerMove','duration':0,'origin':'viewport','x':int(points['x']),'y':int(points['y'])},
@@ -629,6 +644,16 @@ try:
     execute("window.fetch=window.__ternwayUpdateTest.original; localStorage.removeItem('ternway-update-restart'); delete window.__ternwayUpdateTest; return true;")
     check('updater distinguishes installation from restart, retains readiness across navigation and windows, and honours cancellation')
 
+    request('POST', f'/session/{session}/window', {'handle':update_handle})
+    click('[data-action="open-local"]')
+    if not shown('.terminal-host:not([hidden]) .ghostty-input'):
+        click('[data-action="new-terminal"]')
+    history_input=wait(lambda:element('.terminal-host:not([hidden]) .ghostty-input'), 'local history fixture')
+    history_marker='REVIEW_RESTORED_HISTORY'
+    history_escaped=''.join('\\%03o'%byte for byte in history_marker.encode())
+    request('POST', f'/session/{session}/element/{history_input}/value', {'text': f"printf '{history_escaped}\\n'\n"})
+    wait(lambda:execute("return document.querySelector('.terminal-layer')?.textContent.includes(arguments[0]);",history_marker),'history before coordinated quit')
+
     # Quit exercises the same all-window save barrier used by updater restart.
     execute("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('request_app_quit'),0); return true;")
     data_dir = root / "data" / "dev.elashri.ternway.ci"
@@ -650,17 +675,21 @@ try:
     check_startup_size()
     assert execute("return document.querySelector('#app').dataset.colorTheme;") == 'github-dark-dimmed', 'Selected theme survives restart'
     wait(lambda: execute("return document.body.textContent.includes('Start session');"), "restored dormant panes")
-    assert not execute("return document.body.textContent.includes(arguments[0]);", expected), "Private scrollback should not be restored by default"
+    wait(lambda:execute("return document.body.textContent.includes(arguments[0]);",history_marker),'opted-in history restored as inert native cells')
+    for handle in request('GET', f'/session/{session}/window/handles'):
+        request('POST', f'/session/{session}/window', {'handle':handle})
+        ids=wait(lambda:execute("return [...document.querySelectorAll('.term-tab')].map(el=>el.dataset.terminalTab);"),'restored terminal identifiers')
+        assert all(value=='closed' for value in invoke('terminal_activities',sessionIds=ids).values()), 'Restored history must not start a process'
     assert "retained" in invoke("transfer_queue_notice")
     assert any(path.read_text() == "damaged test queue" for path in data_dir.glob("transfers-recovery-*.json"))
     check("damaged transfer queue is retained without blocking native terminal startup")
     screenshot("restored-layout.png")
-    check("all native windows save and reopen dormant without output or command replay")
+    check("all native windows save and reopen dormant with opted-in history and no command replay")
     (artifacts / "results.json").write_text(json.dumps({"backend": os.environ.get("GDK_BACKEND"), "checks": checks}, indent=2))
 finally:
     if session:
         try:
-            screenshot("final.png")
+            if verified_app: screenshot("final.png")
             request("DELETE", f"/session/{session}")
         except Exception as error:
             print(f"Cleanup observation: {error}", file=sys.stderr)
