@@ -5,7 +5,7 @@ export interface GhosttyFrame {
   cursor: { x: number | null; y: number | null; visible: boolean; blink: boolean; style: string; color: string };
   background: string; foreground: string; offset: number; total: number;
   bracketedPaste: boolean; mouse: boolean; alternate: boolean; ack: number;
-  effects: { kind: string; title?: string; uri?: string; exitCode?: number; seconds?: number }[];
+  effects: { kind: string; title?: string; uri?: string; exitCode?: number; seconds?: number; read?: boolean; selection?: string; text?: string }[];
   rowIds: string[]; marks: { row: number; exitCode: number | null }[]; commandActive: boolean;
   cursorScreenY: number; cursorX: number;
   images: GhosttyImage[];
@@ -30,7 +30,7 @@ export const rowText = (row: GhosttyCell[]): string => row.map(cell => cell.text
 export function rowColumns(row: GhosttyCell[]): number[] {
   return row.flatMap(cell => Array.from({ length: cell.text.length }, () => cell.x));
 }
-export function drawGhostty(canvas: HTMLCanvasElement, frame: GhosttyFrame, fontFamily: string, fontSize: number, cellWidth: number, cellHeight: number, selectionBackground: string, images: Map<string, HTMLCanvasElement>, highlights: Map<string, Highlight[]>, selectionForeground?: string): void {
+export function drawGhostty(canvas: HTMLCanvasElement, frame: GhosttyFrame, fontFamily: string, fontSize: number, cellWidth: number, cellHeight: number, selectionBackground: string, images: Map<string, HTMLCanvasElement>, highlights: Map<string, Highlight[]>, selectionForeground?: string, adjustUnderlinePosition = 0): void {
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Terminal canvas is unavailable");
   const dpr = window.devicePixelRatio || 1;
@@ -71,7 +71,7 @@ export function drawGhostty(canvas: HTMLCanvasElement, frame: GhosttyFrame, font
       context.save(); context.beginPath(); context.rect(left, top, w, cellHeight); context.clip();
       context.fillText(cell.text, left, top + (cellHeight - fontSize) / 2 + fontSize * .8);
       context.restore();
-      if (cell.flags & 32) context.fillRect(left, top + cellHeight - 2, w, 1);
+      if (cell.flags & 32) context.fillRect(left, Math.max(top, Math.min(top + cellHeight - 1, top + cellHeight - 2 + adjustUnderlinePosition)), w, 1);
       if (cell.flags & 16) context.fillRect(left, top + cellHeight * .5, w, 1);
       if (cell.flags & 64) context.fillRect(left, top + 1, w, 1);
       context.globalAlpha = 1;

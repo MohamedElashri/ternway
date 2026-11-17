@@ -39,6 +39,7 @@ const PROGRESS_INTERVAL_MS = 100;
 export class UpdateController {
   state: UpdateState = { phase: "idle", downloaded: 0 };
   private pending: UpdatePackage | null = null;
+  private downloadedPackage = false;
   private readonly check: () => Promise<UpdatePackage | null>;
   private readonly restart: () => Promise<void>;
   private readonly changed: () => void;
@@ -63,6 +64,7 @@ export class UpdateController {
   private release(): void {
     const previous = this.pending;
     this.pending = null;
+    this.downloadedPackage = false;
     // Cleanup must not hold the UI in a busy phase if the IPC resource close stalls.
     try { void previous?.close().catch(() => undefined); } catch { /* best effort */ }
   }
@@ -86,6 +88,27 @@ export class UpdateController {
     }
   }
 
+  /** Download and verify now, retaining the package for a later explicit install. */
+  async downloadAvailable(): Promise<void> {
+    if (this.state.phase !== "available" || !this.pending || this.downloadedPackage) return;
+    const update = this.pending;
+    this.set({ phase: "preparing", downloaded: 0, total: undefined, error: undefined });
+    try {
+      await this.prepareInstall();
+      this.set({ phase: "downloading" });
+      await update.download(event => {
+        if (event.event === "Started") this.set({ total: event.data.contentLength });
+        else if (event.event === "Progress") this.set({ downloaded: this.state.downloaded + event.data.chunkLength });
+        else this.set({ phase: "verifying" });
+      }, { timeout: 300_000 });
+      this.downloadedPackage = true;
+      this.set({ phase: "available" });
+    } catch (error) {
+      this.release();
+      this.set({ phase: "error", error: `The update could not be downloaded. Check again to retry. ${updateError(error)}` });
+    }
+  }
+
   async install(): Promise<void> {
     if (this.state.phase !== "available" || !this.pending) return;
     const update = this.pending;
@@ -93,15 +116,17 @@ export class UpdateController {
     let lastProgress = 0;
     try {
       await this.prepareInstall();
-      this.set({ phase: "downloading" });
-      await update.download((event) => {
-        if (event.event === "Finished") this.set({ phase: "verifying" });
-        else if (event.event === "Started") this.set({ total: event.data.contentLength });
-        else if (event.event === "Progress") {
-          this.state.downloaded += event.data.chunkLength;
-          if (Date.now() - lastProgress >= PROGRESS_INTERVAL_MS) { lastProgress = Date.now(); this.changed(); }
-        }
-      }, { timeout: 300_000 });
+      if (!this.downloadedPackage) {
+        this.set({ phase: "downloading" });
+        await update.download((event) => {
+          if (event.event === "Finished") this.set({ phase: "verifying" });
+          else if (event.event === "Started") this.set({ total: event.data.contentLength });
+          else if (event.event === "Progress") {
+            this.state.downloaded += event.data.chunkLength;
+            if (Date.now() - lastProgress >= PROGRESS_INTERVAL_MS) { lastProgress = Date.now(); this.changed(); }
+          }
+        }, { timeout: 300_000 });
+      }
       // download() resolves only after the signature check; never install on "Finished".
       this.set({ phase: "installing" });
       await update.install();

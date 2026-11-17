@@ -17,6 +17,20 @@ export interface ColorConfig {
 }
 
 export interface TerminalConfig {
+  title: string | null;
+  fullscreen: boolean | null;
+  adjustUnderlinePosition: number;
+  clipboardRead: "allow" | "deny" | "ask";
+  clipboardWrite: "allow" | "deny" | "ask";
+  clickRepeatInterval: number;
+  windowHeight: number | null;
+  windowWidth: number | null;
+  windowTheme: "auto" | "system" | "light" | "dark";
+  windowDecoration: boolean | null;
+  windowInheritFontSize: boolean;
+  resizeOverlay: "always" | "never" | "after-first";
+  autoUpdate: "off" | "check" | "download";
+  autoUpdateChannel: "stable";
   fontFamily: string[];
   /** Points, like Ghostty. */
   fontSize: number;
@@ -75,6 +89,20 @@ export interface ParsedConfig {
 }
 
 export const DEFAULT_CONFIG: TerminalConfig = {
+  title: null,
+  fullscreen: null,
+  adjustUnderlinePosition: 0,
+  clipboardRead: "deny",
+  clipboardWrite: "deny",
+  clickRepeatInterval: 500,
+  windowHeight: null,
+  windowWidth: null,
+  windowTheme: "auto",
+  windowDecoration: null,
+  windowInheritFontSize: true,
+  resizeOverlay: "after-first",
+  autoUpdate: "off",
+  autoUpdateChannel: "stable",
   fontFamily: [],
   fontSize: 13,
   theme: null,
@@ -168,6 +196,53 @@ export function parseConfig(entries: ConfigEntry[]): ParsedConfig {
     const invalid = () => errors.push(`${where}: invalid value "${value}" for ${key}`);
     if (applyColor(config.colors, key, value, errors, where)) continue;
     switch (key) {
+      case "title": config.title = value || null; break;
+      case "fullscreen":
+      case "window-decoration":
+      case "window-inherit-font-size": {
+        const flag = value ? parseBoolean(value) : null;
+        if (flag === null && value) { invalid(); break; }
+        if (key === "fullscreen") config.fullscreen = flag;
+        else if (key === "window-decoration") config.windowDecoration = flag;
+        else config.windowInheritFontSize = flag ?? true;
+        break;
+      }
+      case "adjust-underline-position": {
+        const n = Number(value);
+        if (Number.isFinite(n) && Math.abs(n) <= 100) config.adjustUnderlinePosition = n; else invalid();
+        break;
+      }
+      case "clipboard-read":
+      case "clipboard-write":
+        if (value !== "allow" && value !== "deny" && value !== "ask") invalid();
+        else if (key === "clipboard-read") config.clipboardRead = value;
+        else config.clipboardWrite = value;
+        break;
+      case "click-repeat-interval": {
+        const milliseconds = /^\d+(?:\.\d+)?$/.test(value) ? Number(value) : (parseDuration(value) ?? NaN) * 1000;
+        if (Number.isFinite(milliseconds) && milliseconds >= 0 && milliseconds <= 10000) config.clickRepeatInterval = milliseconds; else invalid();
+        break;
+      }
+      case "window-height":
+      case "window-width": {
+        const size = value ? Number(value) : null;
+        if (size !== null && (!Number.isInteger(size) || size < 2 || size > (key === "window-width" ? 1000 : 500))) { invalid(); break; }
+        if (key === "window-height") config.windowHeight = size; else config.windowWidth = size;
+        break;
+      }
+      case "window-theme":
+        if (value === "auto" || value === "system" || value === "light" || value === "dark") config.windowTheme = value; else invalid();
+        break;
+      case "resize-overlay":
+        if (value === "always" || value === "never" || value === "after-first") config.resizeOverlay = value; else invalid();
+        break;
+      case "auto-update":
+        if (value === "off" || value === "check" || value === "download") config.autoUpdate = value; else invalid();
+        break;
+      case "auto-update-channel":
+        if (value === "stable") config.autoUpdateChannel = value;
+        else errors.push(`${where}: Ternway publishes the stable update channel only; "${value}" is unavailable`);
+        break;
       case "font-family":
         // An empty value resets the list; repeated keys add fallbacks.
         if (value) config.fontFamily.push(value); else config.fontFamily = [];
@@ -244,8 +319,8 @@ export function parseConfig(entries: ConfigEntry[]): ParsedConfig {
         if (flag === null) invalid(); else config.quickTerminalAutohide = flag;
         break;
       }
-      // Ghostty's other quick terminal settings are macOS-specific or about animation.
-      case "quick-terminal-screen": case "quick-terminal-animation-duration": case "quick-terminal-space-behavior": break;
+      // Unsupported native animation/screen controls remain visible in Settings.
+      case "quick-terminal-screen": case "quick-terminal-animation-duration": case "quick-terminal-space-behavior": ignored.push(`${key} (${where})`); break;
       case "image-storage-limit": {
         const bytes = Number(value);
         if (Number.isFinite(bytes) && bytes >= 0) config.imageStorageLimit = bytes; else invalid();
@@ -254,9 +329,8 @@ export function parseConfig(entries: ConfigEntry[]): ParsedConfig {
       case "window-save-state":
         if (value === "default" || value === "never" || value === "always") config.windowSaveState = value; else invalid();
         break;
-      // Ghostty's cursor/sudo/title/ssh-* features need nothing extra here: titles always
-      // apply and ternway's TERM is the widely known xterm-256color.
-      case "shell-integration-features": break;
+      // The VT adapter does not implement Ghostty's individual shell integration flags.
+      case "shell-integration-features": ignored.push(`${key} (${where})`); break;
       case "working-directory": config.workingDirectory = value || "inherit"; break;
       case "env": {
         // `env = KEY=VALUE` adds, `env = KEY=` removes, an empty value clears all.

@@ -39,6 +39,7 @@ mod tier3;
 mod tunnels;
 mod update_support;
 mod window_geometry;
+mod terminal_window;
 mod ghostty;
 mod desktop_clipboard;
 
@@ -1993,6 +1994,7 @@ pub fn run() {
             terminal_resize,
             terminal_ack,
             load_config,
+            terminal_window::configure_terminal_window,
             save_session,
             load_session,
             list_workspaces,

@@ -195,6 +195,24 @@ Ghostty's theme directories), `background`, `foreground`, `palette`, `cursor-col
 `image-storage-limit`, `quick-terminal-position`, `quick-terminal-size`, `quick-terminal-autohide`
 and `keybind = global:…`, plus Ternway's own `editor`, `trigger` and (in profiles) `match-host`.
 
+Additional terminal and window settings: `title`, `fullscreen`, `adjust-underline-position`
+(in pixels), `clipboard-read`, `clipboard-write`, `click-repeat-interval` (milliseconds),
+`window-height` (rows), `window-width` (columns), `window-theme`, `window-decoration`,
+`window-inherit-font-size`, and `resize-overlay`. Window dimensions include space for the
+workspace controls and respect the screen bounds and minimum window size. Saving unrelated
+settings preserves a window you resized manually.
+
+`clipboard-read` and `clipboard-write` control programs' OSC 52 clipboard requests, with
+`deny` (the default), `allow`, or `ask`. They do not disable your own Copy and Paste actions. `copy-on-select = true` and
+`copy-on-select = clipboard` both copy to the system clipboard in Ternway.
+Clipboard requests in restored scrollback never run. `click-repeat-interval = 0` disables
+repeated-click selection; otherwise double-click selects a word and triple-click selects a row.
+
+`auto-update` accepts `off` (the default), `check`, or `download`. Enabled checks run on startup
+and every six hours in the main workspace; automatic downloads are signature-verified and wait
+for you to choose Install. Restart is always your choice. `auto-update-channel = stable` selects
+Ternway's published release channel; other channels report a configuration error.
+
 **Profiles** are files in `~/.config/ternway/profiles/`, in the same format, layered on top of the
 main config. Open one with "New tab: <name>" in the command palette. A profile with
 `match-host = prod-*` is used for SSH tabs to servers whose host or name matches, for example to

@@ -6,6 +6,8 @@ import { LINUX_DEFAULTS, MACOS_DEFAULTS, parseKeybindings, quickTerminalShortcut
 import { platform, quickMode, state, type ResolvedProfile } from "./state";
 import { applyTerminalAppearance } from "./terminal";
 import type { TerminalAppearance } from "./terminal-surface";
+import { applyWindowConfig } from "./window-config";
+import { configureAutomaticUpdates } from "./updater";
 import { showToast } from "./toasts";
 
 interface LoadedConfig {
@@ -39,6 +41,9 @@ export function terminalAppearance(profile?: string): TerminalAppearance {
     cursorBlink: config.cursorBlink ?? true,
     macOptionIsMeta: config.macosOptionAsAlt,
     scrollback: config.scrollbackLimit,
+    adjustUnderlinePosition: config.adjustUnderlinePosition,
+    clickRepeatInterval: config.clickRepeatInterval,
+    resizeOverlay: config.resizeOverlay,
   };
 }
 
@@ -104,6 +109,12 @@ export async function loadTerminalConfig(announce = false): Promise<void> {
   }
   if (version !== configLoadVersion) return;
   applyTerminalAppearance();
+  if (!quickMode) {
+    const appearance = terminalAppearance();
+    await applyWindowConfig(config, appearance.fontSize, appearance.fontFamily, state.darkMode).catch(error => state.terminalConfig.errors.push(errorText(error)));
+    if (version !== configLoadVersion) return;
+    configureAutomaticUpdates(config);
+  }
   if (announce) {
     const problems = state.terminalConfig.errors.length;
     showToast(problems ? `Config reloaded with ${problems} problem${problems === 1 ? "" : "s"}; see Settings.` : "Config reloaded.", "info");
