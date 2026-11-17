@@ -12,6 +12,9 @@ AGENTS.md
 PROJECT.md
 scripts/
 
+# Local review notes and QA evidence
+/docs/qa/
+
 # Machine-specific Cargo settings
 /.cargo/
 
