@@ -305,7 +305,10 @@ try:
     wait(lambda: read("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#123456';"), 'explicit terminal color applied')
     click('[data-theme-id="github-light"]')
     wait(lambda: read("return document.querySelector('#app').dataset.colorTheme==='github-light' && getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#123456';"), 'terminal config color survives workspace theme change')
-    (config / 'config').write_text(original_config)
+    # Appearance choices now persist to this file. Remove only the terminal
+    # color override so the current workspace theme remains selected.
+    current_config = (config / 'config').read_text()
+    (config / 'config').write_text('\n'.join(line for line in current_config.splitlines() if line.partition('=')[0].strip() != 'background') + '\n')
     wait(lambda: read("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#ffffff';"), 'terminal returns to preset after removing color override')
     click('[data-theme-id="github-dark-dimmed"]')
     wait(lambda: read("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#22272e';"), 'dimmed palette restored')
