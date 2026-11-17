@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1 - 2026-11-17
+
+- Restore native Linux window controls and edge resizing, with a single title bar.
+- Remove duplicate Ternway branding from the Linux sidebar and reclaim the extra header space.
+
 ## 0.4.0 - 2026-11-17
 
 - Switch from xterm.js to native libghostty-vt.

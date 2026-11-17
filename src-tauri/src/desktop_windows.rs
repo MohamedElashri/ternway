@@ -141,8 +141,8 @@ fn take_owned(owners: &Mutex<HashMap<String, String>>, label: &str) -> Vec<Strin
         .unwrap_or_default()
 }
 fn observe(app: &AppHandle, window: &WebviewWindow) {
-    // Linux uses the custom titlebar and in-app Settings/About. A native GTK
-    // menubar adds a second, often light-colored chrome row above that titlebar.
+    // Linux uses native window decorations and in-app Settings/About. Keep the
+    // GTK menubar hidden so there is only one titlebar above the workspace.
     #[cfg(target_os = "linux")]
     let _ = window.hide_menu();
     let app = app.clone();
@@ -205,7 +205,7 @@ fn create(app: &AppHandle, label: &str, layout: Option<&str>) -> Result<(), Stri
         .title("Ternway")
         .inner_size(1200., 780.)
         .min_inner_size(640., 480.)
-        .decorations(false)
+        .decorations(cfg!(target_os = "linux"))
         .center()
         .visible(false)
         .build()

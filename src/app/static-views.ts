@@ -1,5 +1,5 @@
-import { icon } from "../icons";
-import { escapeHtml } from "./format";
+import { icon } from "../icons.ts";
+import { escapeHtml } from "./format.ts";
 
 export interface TitlebarViewData {
   platform: string;
@@ -8,6 +8,8 @@ export interface TitlebarViewData {
 }
 
 export function renderTitlebarView({ platform, context }: TitlebarViewData): string {
+  // Linux uses the desktop's titlebar, controls and resize frame.
+  if (platform === "linux") return "";
   return `<header class="titlebar" data-tauri-drag-region data-platform="${platform}">
     <div class="titlebar-brand"><span class="titlebar-mark">${icon("logo")}</span><span>Ternway</span></div>
     ${context ? `<div class="titlebar-caption"><div class="titlebar-context"><strong>${escapeHtml(context.title)}</strong><span>${escapeHtml(context.detail)}</span></div></div>` : ""}

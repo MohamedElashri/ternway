@@ -134,6 +134,17 @@ def start():
     request("POST", f"/session/{session}/timeouts", {"script": 30000, "pageLoad": 30000, "implicit": 0})
     wait(lambda: shown('[data-action="credential-settings"]'), "app bootstrap")
     verified_app = True
+    assert invoke('plugin:window|is_decorated', label='main')
+    assert invoke('plugin:window|is_resizable', label='main')
+    chrome = read("""
+      const shell=document.querySelector('.app-shell').getBoundingClientRect();
+      return {platform:document.querySelector('#app').dataset.platform,
+        extraChrome:!!document.querySelector('.titlebar,.window-controls,.rail-brand'),
+        top:shell.top,bottom:shell.bottom,height:window.innerHeight};
+    """)
+    assert chrome['platform'] == 'linux' and not chrome['extraChrome'], chrome
+    assert abs(chrome['top']) <= 1 and abs(chrome['bottom'] - chrome['height']) <= 1, chrome
+    check('Linux has one native titlebar and the workspace fills the client area')
 
 def screenshot(name):
     value = request("GET", f"/session/{session}/screenshot")
@@ -569,7 +580,9 @@ try:
     layouts = invoke("list_workspaces")["entries"]
     layout = next(row for row in layouts if row["name"] == "CI native layout")
     click('[data-action="close-modal"]')
-    invoke("new_workspace_window", layoutId=layout["id"])
+    new_window_label = invoke("new_workspace_window", layoutId=layout["id"])
+    assert invoke('plugin:window|is_decorated', label=new_window_label)
+    assert invoke('plugin:window|is_resizable', label=new_window_label)
     wait(lambda: len(request("GET", f"/session/{session}/window/handles")) >= 2, "second ordinary window")
     original_handle = request('GET', f'/session/{session}/window')
     for handle in request('GET', f'/session/{session}/window/handles'):

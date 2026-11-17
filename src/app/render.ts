@@ -51,6 +51,7 @@ export function render(): void {
   applyThemeTokens(document.documentElement, themePreset(state.themeId));
   root.dataset.theme = state.darkMode ? "dark" : "light";
   root.dataset.colorTheme = state.themeId;
+  root.dataset.platform = platform;
   root.innerHTML = quickMode ? renderQuickShell() : `${renderTitlebar()}${state.loading ? renderLoading() : renderShell()}`;
   restoreConnectionForm(root, previousConnectionForm);
   restoreConnectionForm(root, previousPasswordForm);
@@ -163,7 +164,7 @@ export function renderServerRail(): string {
   const query = state.serverQuery.trim().toLowerCase();
   return `<aside class="server-rail" aria-label="Connections">
     <div class="server-rail-flyout">
-      <div class="rail-brand"><span class="brand-mark">${icon("logo")}</span><span class="rail-brand-name">Ternway</span></div>
+      ${platform === "linux" ? "" : `<div class="rail-brand"><span class="brand-mark">${icon("logo")}</span><span class="rail-brand-name">Ternway</span></div>`}
       <div class="sidebar-section server-section">
         <div class="section-label-row"><span class="section-label">Connections</span><span class="connection-drag-hint" title="Drag connections to reorder or move between folders. Alt+↑/↓ moves the focused item.">Drag to organize</span></div>
         <label class="sidebar-search"><span>${icon("search")}</span><input data-field="server-search" value="${escapeHtml(state.serverQuery)}" placeholder="Search connections…" aria-label="Search connections and notes"/><kbd>${platform === "macos" ? "⌘" : "Ctrl"} K</kbd></label>
