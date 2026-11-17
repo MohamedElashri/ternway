@@ -56,6 +56,7 @@ export interface AppStateSnapshot {
   identities: Identity[];
   version: number;
   servers: ServerProfile[];
+  connectionOrder?: string[];
   sshKeys: SshKey[];
   sshConfigEntries: SshConfigEntry[];
 }

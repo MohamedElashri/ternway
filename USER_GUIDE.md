@@ -206,3 +206,7 @@ omitted, the test uses SSH_AUTH_SOCK. The check enforces known_hosts, runs a fix
 read-only printf command, disconnects and removes its temporary profile store.
 A separate opt-in 1Password regression remains available. Protocol support does
 not guarantee support for every provider policy, key type or agent extension.
+
+Use **Reorder connections** beside the sidebar heading to move saved connections up or down
+within their group. The order is saved across restarts and included in library backups.
+**Use automatic order** restores sorting by favorites, recent use and name.

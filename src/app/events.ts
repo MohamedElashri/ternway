@@ -1,3 +1,4 @@
+import { movedConnectionOrder } from "./connection-order";
 import { openLibraryTools, applyBulkConnections, exportLibraryBackup, restoreLibraryBackup, retryEditRecovery } from "./library-tools";
 import { openTransferQueue, refreshTransferQueue, transferAction, runQueue } from "./transfer-queue";
 import { showToast } from "./toasts";
@@ -286,6 +287,20 @@ export async function handleClick(event: MouseEvent): Promise<void> {
 /** Runs a `data-action`; `target` carries extra data attributes for actions that need them. */
 export async function runAction(action: string, target: HTMLElement = document.createElement("button")): Promise<void> {
   switch (action) {
+    case "connection-order": state.modal = "connection-order"; render(); break;
+    case "move-connection-up":
+    case "move-connection-down":
+    case "reset-connection-order": {
+      const ids = action === "reset-connection-order" ? [] : movedConnectionOrder(state.snapshot.servers, state.snapshot.connectionOrder, target.dataset.connectionId!, action === "move-connection-up" ? -1 : 1);
+      if (!ids) break;
+      try {
+        await invoke("set_connection_order", { serverIds: ids });
+        await refreshSnapshot(false); state.sidebarCopyPlacement = null; render();
+        root.querySelector<HTMLButtonElement>(`[data-action="${action}"][data-connection-id="${CSS.escape(target.dataset.connectionId ?? "")}"]`)?.focus();
+      } catch (error) { setError(error); }
+      break;
+    }
+
     case "rename-connection-group": {
       const ids = state.snapshot.servers.filter(s => groupKey(s.groupName) === target.dataset.group).map(s => s.id);
       const name = await requestTextInput({ title: "Move group connections", label: "Destination group (leave empty to ungroup)", defaultValue: target.dataset.label || "", allowEmpty: true });

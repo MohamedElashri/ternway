@@ -1,4 +1,5 @@
 const paths: Record<string, string> = {
+  sort: '<path d="M8 4v16m-4-4 4 4 4-4M16 4v16m-4-12 4-4 4 4"/>',
   logo: '<path d="M3 6h5.8L12 8.3 9 10.5H6.4z" fill="currentColor" stroke="none"/><path d="M15 6h6l-3.4 3.8-5.6 3v4.6l-3 2.9v-8.8z" fill="currentColor" stroke="none"/>',
   dashboard: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   terminal: '<path d="m4 5 6 6-6 6M13 17h7"/>',
