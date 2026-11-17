@@ -1,7 +1,7 @@
 import { namedTheme, themePreset, type ThemePreset } from "./theme-presets";
 import { invoke } from "@tauri-apps/api/core";
 import { errorText } from "./command-client";
-import { fontSizePx, hostMatches, keybindLines, parseColors, parseConfig, scrollbackLines, themeName, xtermTheme, type ColorConfig, type ConfigEntry, type TerminalConfig } from "./config";
+import { fontSizePx, hostMatches, keybindLines, parseColors, parseConfig, themeName, terminalTheme, type ColorConfig, type ConfigEntry, type TerminalConfig } from "./config";
 import { LINUX_DEFAULTS, MACOS_DEFAULTS, parseKeybindings, quickTerminalShortcut } from "./keybindings";
 import { platform, quickMode, state, type ResolvedProfile } from "./state";
 import { applyTerminalAppearance } from "./terminal";
@@ -38,7 +38,7 @@ export function terminalAppearance(profile?: string): TerminalAppearance {
     cursorStyle: config.cursorStyle,
     cursorBlink: config.cursorBlink ?? true,
     macOptionIsMeta: config.macosOptionAsAlt,
-    scrollback: scrollbackLines(config.scrollbackLimit),
+    scrollback: config.scrollbackLimit,
   };
 }
 
@@ -62,7 +62,7 @@ async function resolveTheme(config: TerminalConfig, errors: string[], preset: Th
       else errors.push(errorText(error));
     }
   }
-  return { config, theme: xtermTheme(base, themeColors, config.colors) };
+  return { config, theme: terminalTheme(base, themeColors, config.colors) };
 }
 
 let configLoadVersion = 0;

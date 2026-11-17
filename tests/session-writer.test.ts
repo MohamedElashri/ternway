@@ -34,3 +34,16 @@ test("a failed write can be retried without discarding the session", async () =>
   await writer.save("session");
   assert.equal(attempts, 2);
 });
+
+test("native snapshot capture and persistence finish in request order", async () => {
+  const calls: string[] = [];
+  let finishCapture!: () => void;
+  const capture = new Promise<void>(resolve => { finishCapture = resolve; });
+  const writer = new SessionWriter(async contents => { calls.push(`write:${contents}`); });
+  const periodic = writer.save(async () => { calls.push("capture:old"); await capture; return "old"; });
+  const quit = writer.save(async () => { calls.push("capture:new"); return "new"; });
+  await Promise.resolve();
+  assert.deepEqual(calls, ["capture:old"]);
+  finishCapture(); await Promise.all([periodic, quit]);
+  assert.deepEqual(calls, ["capture:old", "write:old", "capture:new", "write:new"]);
+});

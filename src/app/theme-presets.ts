@@ -1,7 +1,7 @@
 // Adapted from primer/github-vscode-theme (MIT) and its pinned Primer Primitives 7.10.0 palettes.
 // See docs/THEMES.md and licenses/ for source attribution and the bundled licenses.
 import data from "./theme-data.json" with { type: "json" };
-import type { XtermTheme } from "./config.ts";
+import type { TerminalTheme } from "./config.ts";
 
 export interface ThemePreset {
   id: string;
@@ -9,7 +9,7 @@ export interface ThemePreset {
   mode: "dark" | "light";
   description: string;
   chrome: Record<string, string>;
-  terminal: XtermTheme;
+  terminal: TerminalTheme;
 }
 export const THEME_PRESETS = data as ThemePreset[];
 export const DEFAULT_THEME_ID = "github-dark";

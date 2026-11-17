@@ -3,13 +3,13 @@
 //! Output is sent to the webview as raw bytes over a `tauri::ipc::Channel`. Each message
 //! is one tag byte followed by the payload:
 //!
-//! - `FRAME_DATA`: terminal bytes, written to xterm.js as-is (xterm decodes UTF-8 itself)
+//! - `FRAME_DATA`: terminal bytes delivered to the native Ghostty adapter
 //! - `FRAME_CLOSED`: UTF-8 message describing why the session ended; always the last frame
 //!
 //! Every channel message costs a webview `eval` (and a fetch round-trip above 1 KiB), so
 //! bytes are batched to at most one message per `FRAME_INTERVAL` while output is
 //! streaming. A lone chunk after an idle period, such as a keystroke echo, is sent
-//! immediately. The frontend acknowledges bytes once xterm.js has parsed them; while
+//! immediately. The frontend acknowledges bytes after the native render packet has been consumed; while
 //! more than `MAX_UNACKED_BYTES` are outstanding, backends stop reading so the remote
 //! side is throttled instead of memory piling up in the webview.
 
@@ -27,7 +27,7 @@ const MAX_UNACKED_BYTES: usize = 4 * 1024 * 1024;
 
 pub type OutputChannel = Channel<InvokeResponseBody>;
 
-/// Bytes sent to the webview but not yet parsed by xterm.js.
+/// Bytes sent to the webview but not yet consumed by the native renderer.
 #[derive(Clone, Default)]
 pub struct Unacked(Arc<AtomicUsize>, Arc<AtomicBool>);
 

@@ -17,7 +17,7 @@ export async function openWorkspaceLibrary(): Promise<void> {
   state.modal = "workspaces"; render();
 }
 export async function saveWorkspaceLayout(): Promise<void> {
-  const layout = snapshotSession();
+  const layout = await snapshotSession();
   const name = await requestTextInput({ title: "Save workspace", label: "Workspace name", defaultValue: "", placeholder: "Project or task" });
   if (name === null) { await openWorkspaceLibrary(); return; }
   await invoke("save_workspace", { id: null, name, layout });

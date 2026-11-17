@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import { DEFAULT_THEME, xtermTheme } from "../src/app/config.ts";
+import { DEFAULT_THEME, terminalTheme } from "../src/app/config.ts";
 import { THEME_PRESETS, THEME_STORAGE_KEY, applyThemeTokens, findTheme, namedTheme, oppositeTheme, rememberTheme, restoredTheme, themePreset } from "../src/app/theme-presets.ts";
 import { renderThemePicker } from "../src/app/theme-picker.ts";
 
@@ -56,7 +56,7 @@ test("preset preferences survive restoration and light/dark switches retain the 
 
 test("terminal config and profile colors keep priority over the selected workspace preset", () => {
   const base = themePreset("github-light").terminal;
-  const configured = xtermTheme(base,{background:"#123456",palette:{1:"#abcdef"}});
+  const configured = terminalTheme(base,{background:"#123456",palette:{1:"#abcdef"}});
   assert.equal(configured.background,"#123456"); assert.equal(configured.red,"#abcdef");
   assert.equal(base.background,"#ffffff");
 });

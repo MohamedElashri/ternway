@@ -157,6 +157,7 @@ fn observe(app: &AppHandle, window: &WebviewWindow) {
             }
             let _ = persist(&app);
         }
+        app.state::<crate::ghostty::EngineService>().close_window(label.clone());
         let app_state = app.state::<crate::AppState>();
         for id in take_owned(&state.owners, &label) {
             let _ = crate::terminal::close(&app_state.terminals, &id);

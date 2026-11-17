@@ -27,12 +27,11 @@ import { filteredServers, groupKey, render, renderServerGroups } from "./render"
 import { closeCustomSelects, syncCustomSelect } from "./select-controls";
 import { cancelCurrentOperation, finishHostKeyPrompt, finishSshPasswordPrompt, setError } from "./session";
 import { activeCapabilities, activeTerminalTabByWorkspace, appWindow, createLogViewer, DEFAULT_INTERFACE_SCALE, root, state } from "./state";
-import { clearActiveTerminal, closeTerminalGroup, focusPane, openNewTerminal, reconnectTerminal, setTerminalRenderer, toggleDockPosition, toggleTerminalDock } from "./terminal";
+import { clearActiveTerminal, closeTerminalGroup, focusPane, openNewTerminal, reconnectTerminal, toggleDockPosition, toggleTerminalDock } from "./terminal";
 import { dismissToast, setInterfaceScale, stepInterfaceScale } from "./toasts";
 import type { AdministrationTab, ContainerPlatformTab, DiskTab, DockerSection, LogSource, LogTarget, LogViewerState, View } from "./types";
 import { ensureDiskVarLog, openDiskPathInFiles, selectDiskTab } from "./views/disk";
 import { clearCommandResults, clearContainerLogs, clearRefreshTimer, closeWorkspaceTab, loadActiveView, loadAdministrationTab, selectLocalWorkspace, selectServer, selectWorkspaceTab, setView } from "./workspace";
-import type { TerminalRenderer } from "./state";
 import { loadTerminalConfig } from "./terminal-config";
 import { checkForUpdates, RELEASES_URL, updates } from "./updater";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -541,10 +540,6 @@ export function handleInput(event: Event): void {
 
 export function handleChange(event: Event): void {
   const input = event.target as HTMLInputElement | HTMLSelectElement;
-  if (input.dataset.field === "terminal-renderer") {
-    setTerminalRenderer(input.value as TerminalRenderer);
-    return;
-  }
   if (input.dataset.field === "cron-preset") {
     const schedule = input.closest<HTMLFormElement>("form")?.elements.namedItem("schedule") as HTMLInputElement | null;
     if (schedule && input.value) schedule.value = input.value;

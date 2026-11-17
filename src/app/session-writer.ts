@@ -8,11 +8,14 @@ export class SessionWriter {
     this.persist = persist;
   }
 
-  save(contents: string): Promise<void> {
+  save(contents: string | (() => Promise<string | null>)): Promise<void> {
     const next = this.pending.then(async () => {
-      if (contents === this.lastSaved) return;
-      await this.persist(contents);
-      this.lastSaved = contents;
+      // Native snapshots are asynchronous. Capture inside the same queue as the
+      // write so an older slow snapshot cannot overwrite a newer layout at quit.
+      const value = typeof contents === "function" ? await contents() : contents;
+      if (value === null || value === this.lastSaved) return;
+      await this.persist(value);
+      this.lastSaved = value;
     });
     this.pending = next.catch(() => undefined);
     return next;

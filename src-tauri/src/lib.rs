@@ -39,6 +39,7 @@ mod tier3;
 mod tunnels;
 mod update_support;
 mod window_geometry;
+mod ghostty;
 
 use log_stream::LogSessions;
 use models::*;
@@ -1336,17 +1337,20 @@ fn start_terminal(
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     request: TerminalRequest,
-    on_output: pty_output::OutputChannel,
+    engine_id: String,
     operation_id: Option<String>,
 ) -> Result<TerminalStarted, AppError> {
+    let engine=app.state::<ghostty::EngineService>();
+    let output=engine.bind(window.label(),&engine_id)?;
     let started = terminal::start(
-        on_output,
+        output,
         state.store.clone(),
         state.terminals.clone(),
         request,
         operation_id.as_deref(),
     )?;
     desktop_windows::own(&app, window.label(), &started.session_id)?;
+    engine.activate(engine_id,state.terminals.clone(),started.session_id.clone())?;
     Ok(started)
 }
 
@@ -1356,14 +1360,17 @@ fn start_local_terminal(
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
     request: LocalTerminalRequest,
-    on_output: pty_output::OutputChannel,
+    engine_id: String,
 ) -> Result<TerminalStarted, AppError> {
+    let engine=app.state::<ghostty::EngineService>();
+    let output=engine.bind(window.label(),&engine_id)?;
     let started = local_pty::start(
-        on_output,
+        output,
         state.terminals.clone(),
         request,
     )?;
     desktop_windows::own(&app, window.label(), &started.session_id)?;
+    engine.activate(engine_id,state.terminals.clone(),started.session_id.clone())?;
     Ok(started)
 }
 
@@ -1790,6 +1797,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(config::ConfigWatcher::default())
+        .manage(ghostty::EngineService::default())
         .manage(remote_edit::RemoteEdits::default())
         .setup(|app| {
             let menu = tauri::menu::Menu::default(app.handle())?;
@@ -1876,6 +1884,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            ghostty::ghostty_create,
+            ghostty::ghostty_action,
             app_metadata,
             get_credential_status,
             lock_credentials,

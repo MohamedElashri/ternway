@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Replace xterm.js with natively linked libghostty-vt 1.0.1, with native keyboard encoding, scrollback, search and inert session snapshots.
+- Render Ghostty cells and Kitty images in the workspace, retaining native Sixel and iTerm2 inline-image compatibility.
+- Report the actual native terminal engine in About and retire the old WebGL/DOM renderer switch.
 - Close the final local terminal or Local workspace without creating replacement shells.
 - Organize connections directly in the sidebar with drag ordering, inline folder controls and a permanent renameable default folder.
 - Align workspace and terminal tabs, with keyboard navigation and consistent close controls.

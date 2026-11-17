@@ -45,7 +45,7 @@ to pin a release.
 
 ## Development
 
-Requires Node.js, Rust and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
+Requires Node.js 24, the pinned Rust toolchain, Zig 0.17.1 on Linux, and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 ```sh
 make dev      # run the app with hot reload

@@ -260,9 +260,7 @@ export function renderSecurityModal(): string {
         </section>`,
     terminal: () => `<section class="settings-group" id="settings-terminal" tabindex="-1" aria-labelledby="settings-terminal-title">
           <h3 id="settings-terminal-title">Terminal</h3>
-          <div class="settings-row"><div class="settings-row-copy"><h4>Renderer</h4><p>Automatic chooses the renderer for your platform. Try DOM if WebGL has display issues.</p></div>
-            <label class="field settings-renderer"><span class="sr-only">Terminal renderer</span><select data-field="terminal-renderer" aria-label="Terminal renderer">${(["auto", "webgl", "dom"] as const).map(value => `<option value="${value}" ${state.terminalRenderer === value ? "selected" : ""}>${{ auto: "Automatic", webgl: "WebGL", dom: "DOM" }[value]}</option>`).join("")}</select></label>
-          </div>
+          <div class="settings-row" data-native-terminal><div class="settings-row-copy"><h4>Native Ghostty engine</h4><p>libghostty-vt 1.0.1 processes terminal output and input in the desktop app.</p></div></div>
           ${renderConfigSettings()}
         </section>`,
     connections: () => `<section class="settings-group" id="settings-connections" tabindex="-1" aria-labelledby="settings-connections-title">

@@ -17,7 +17,12 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - name: Install Zig for native libghostty-vt
+        if: runner.os == 'Linux'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target

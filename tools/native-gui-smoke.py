@@ -153,7 +153,7 @@ try:
         assert 1100 <= size['width'] <= 1440 and 700 <= size['height'] <= 900, size
     check_startup_size()
     check('fresh native window opens at its configured usable size')
-    wait(lambda: element('.xterm-helper-textarea'), 'initial local shell')
+    wait(lambda: element('.ghostty-input'), 'initial local shell')
     click('.term-tab-close')
     wait(lambda: shown('.terminal-empty') or shown('[data-app-dialog]'), 'close final local terminal')
     if shown('[data-app-dialog]'):
@@ -163,16 +163,27 @@ try:
     click('[data-workspace-close="local"]')
     wait(lambda: not shown('.workspace-tab-local'), 'local workspace closes')
     click('[data-action="open-local"]')
-    wait(lambda: element('.xterm-helper-textarea'), 'explicitly reopen local workspace')
+    wait(lambda: element('.ghostty-input'), 'explicitly reopen local workspace')
     assert execute("return document.querySelectorAll('.term-tab').length;") == 1
     check('last local terminal and Local workspace close without replacement shells and reopen explicitly')
-    textarea = wait(lambda: element('.xterm-helper-textarea'), "local terminal")
+    textarea = wait(lambda: element('.ghostty-input'), "local terminal")
     # The marker is encoded in the command so shell echo cannot satisfy this assertion.
     expected = "CI_NATIVE_λ_漢字"
     escaped = ''.join('\\%03o' % byte for byte in expected.encode())
     request("POST", f"/session/{session}/element/{textarea}/value", {"text": f"printf '{escaped}\\n'\n"})
-    wait(lambda: execute("return document.querySelector('.terminal-layer')?.textContent?.includes(arguments[0]) || Array.from(document.querySelectorAll('.xterm-rows')).some(el=>el.textContent.includes(arguments[0]));", expected), "real PTY Unicode output")
+    wait(lambda: execute("return document.querySelector('.terminal-layer')?.textContent?.includes(arguments[0]) || Array.from(document.querySelectorAll('.ghostty-accessibility')).some(el=>el.textContent.includes(arguments[0]));", expected), "real PTY Unicode output")
+    assert execute("return !!document.querySelector('.ghostty-terminal[data-engine=libghostty-vt-native] canvas') && !document.querySelector('.xterm');")
     check("native WebKitGTK terminal accepts input and renders UTF-8 process output")
+    request('POST', f'/session/{session}/actions', {'actions':[{'type':'key','id':'search-keys','actions':[
+        {'type':'keyDown','value':'\ue009'}, {'type':'keyDown','value':'\ue008'},
+        {'type':'keyDown','value':'f'}, {'type':'keyUp','value':'f'},
+        {'type':'keyUp','value':'\ue008'}, {'type':'keyUp','value':'\ue009'}]}]})
+    search_input = wait(lambda: element('.terminal-search:not([hidden]) input'), 'native scrollback search')
+    request('POST', f'/session/{session}/element/{search_input}/value', {'text': expected})
+    wait(lambda: execute("return document.querySelector('.terminal-search-count')?.textContent==='1/1';"), 'Unicode match in native scrollback')
+    screenshot('native-ghostty-search.png')
+    click('[data-search="close"]')
+    check('native scrollback search finds real Unicode PTY output and highlights its cells')
     for width, height in [(1000, 700), (1280, 850), (1080, 720), (1400, 900)]:
         request("POST", f"/session/{session}/window/rect", {"width": width, "height": height})
     check("window resizing keeps the terminal alive")
@@ -185,7 +196,7 @@ try:
       return {x:Math.round(tab.left+30), y:Math.round(tab.top+tab.height/2),
         endX:Math.round(surface.right-30), endY:Math.round(surface.top+60)};
     """)
-    # The xterm overlay is outside the app root. Pointer capture must retain
+    # The terminal overlay is outside the app root. Pointer capture must retain
     # the release when a tab is dragged over it, just as outside the window.
     request('POST', f'/session/{session}/actions', {'actions':[{'type':'pointer', 'id':'tab-drag', 'parameters':{'pointerType':'mouse'}, 'actions':[
         {'type':'pointerMove', 'duration':0, 'origin':'viewport', 'x':drag_points['x'], 'y':drag_points['y']},
@@ -204,11 +215,12 @@ try:
     assert sections == ['Appearance', 'Terminal', 'Connections', 'Security', 'Updates', 'About'], sections
     assert execute("return document.querySelectorAll('.settings-group').length===1 && !!document.querySelector('#settings-appearance') && !document.querySelector('#settings-terminal');")
     click('[data-settings-page="terminal"]')
-    assert execute("return !!document.querySelector('[data-field=terminal-renderer]') && !document.querySelector('#settings-appearance');")
+    assert execute("return !!document.querySelector('[data-native-terminal]') && !document.querySelector('#settings-appearance');")
     click('[data-settings-page="security"]')
-    assert execute("return !!document.querySelector('[data-action=lock-vault]') && !document.querySelector('[data-field=terminal-renderer]');")
+    assert execute("return !!document.querySelector('[data-action=lock-vault]') && !document.querySelector('[data-native-terminal]');")
     click('[data-settings-page="about"]')
     wait(lambda: execute("return !!document.querySelector('.settings-content .about-details') && !document.querySelector('#settings-security');"), 'About settings page')
+    assert execute("return document.querySelector('.about-details')?.textContent.includes('libghostty-vt 1.0.1 (native)');")
     click('[data-settings-page="appearance"]')
     request('POST', f'/session/{session}/window/rect', {'width':640, 'height':480})
     assert execute("const modal=document.querySelector('.modal-settings'), nav=document.querySelector('.settings-nav'), footer=document.querySelector('.settings-footer');return modal.scrollHeight<=modal.clientHeight+1 && nav.getBoundingClientRect().top>=0 && footer.getBoundingClientRect().bottom<=window.innerHeight;")
@@ -421,7 +433,7 @@ try:
     click('[data-form="workspace-tab-rename"] button[type="submit"]')
     wait(lambda: execute("return document.querySelector('.workspace-tab.active .workspace-tab-copy')?.textContent==='QA remote';"), 'workspace label saved')
     def remote_input(text):
-        target = execute("return document.querySelector('.terminal-host:not([hidden]) .xterm-helper-textarea');")
+        target = execute("return document.querySelector('.terminal-host:not([hidden]) .ghostty-input');")
         request('POST', f'/session/{session}/element/{target["element-6066-11e4-a52e-4f735466cecf"]}/value', {'text':text})
     remote_input('CI_REMOTE_λ_漢字\n')
     wait(lambda: execute("return document.querySelector('.terminal-layer')?.textContent.includes('CI_REMOTE_λ_漢字');"), 'SSH input and UTF-8 echo')
