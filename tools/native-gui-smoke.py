@@ -216,10 +216,27 @@ try:
     assert sections[-1] == "About", sections
     assert execute("return document.querySelector('#app').dataset.colorTheme;") == 'github-dark'
     theme_backgrounds = [('github-light','#ffffff'), ('github-dark','#0d1117'), ('github-dark-dimmed','#22272e'), ('github-light-high-contrast','#ffffff'), ('github-dark-high-contrast','#0a0c10'), ('github-light-colorblind','#ffffff'), ('github-dark-colorblind','#0d1117'), ('dracula','#282a36')]
+    def primary_button_metrics():
+        return execute("""
+          const button=document.querySelector('.settings-footer .button-primary'),style=getComputedStyle(button),rect=button.getBoundingClientRect();
+          const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const context=canvas.getContext('2d');
+          const rgb=color=>{context.clearRect(0,0,1,1);context.fillStyle=color;context.fillRect(0,0,1,1);return [...context.getImageData(0,0,1,1).data].slice(0,3);};
+          const luminance=values=>values.map(value=>{value/=255;return value<=.04045?value/12.92:((value+.055)/1.055)**2.4;}).reduce((sum,value,index)=>sum+value*[.2126,.7152,.0722][index],0);
+          const foreground=luminance(rgb(style.color)),background=luminance(rgb(style.backgroundColor));
+          return {contrast:(Math.max(foreground,background)+.05)/(Math.min(foreground,background)+.05),background:rgb(style.backgroundColor).join(','),accent:rgb(getComputedStyle(document.documentElement).getPropertyValue('--accent')).join(','),x:rect.left+rect.width/2,y:rect.top+rect.height/2,height:rect.height,top:rect.top,shadow:style.boxShadow,transform:style.transform};
+        """)
+    def hover_point(x,y):
+        request('POST', f'/session/{session}/actions', {'actions':[{'type':'pointer','id':'button-hover','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':0,'origin':'viewport','x':int(x),'y':int(y)}]}]})
     for theme_id, background in theme_backgrounds:
         click(f'[data-theme-id="{theme_id}"]')
         wait(lambda: execute("return document.querySelector('#app').dataset.colorTheme===arguments[0] && getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()===arguments[1];", theme_id, background), f'live {theme_id} workspace and terminal palette')
         assert execute("return document.querySelector('.terminal-layer').textContent.includes(arguments[0]);", expected), 'Theme changes preserve terminal output'
+        hover_point(5,5)
+        normal=wait(lambda: (value if (value:=primary_button_metrics())['background']==value['accent'] else None), 'normal button palette')
+        assert normal['contrast']>=4.5 and normal['height']==34 and normal['shadow']=='none', (theme_id,normal)
+        hover_point(normal['x'],normal['y'])
+        hovered=wait(lambda: (value if (value:=primary_button_metrics())['background']!=normal['background'] else None), 'button hover palette')
+        assert hovered['contrast']>=4.5 and hovered['transform']=='none' and hovered['top']==normal['top'], (theme_id,hovered)
         if theme_id in ['github-dark','github-light']:
             screenshot(theme_id + '.png')
     original_config = (config / 'config').read_text()
@@ -231,7 +248,7 @@ try:
     wait(lambda: execute("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#ffffff';"), 'terminal returns to preset after removing color override')
     click('[data-theme-id="github-dark-dimmed"]')
     wait(lambda: execute("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#22272e';"), 'dimmed palette restored')
-    check('all built-in themes apply live without losing terminal output and preserve explicit config colors')
+    check('all built-in themes apply live; primary buttons retain text contrast and stable hover geometry in every theme')
     click('[data-action="close-modal"]')
     assert execute("return document.querySelectorAll('[data-action=theme]').length;") == 1
     click('[data-action="theme"]')

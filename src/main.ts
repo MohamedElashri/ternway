@@ -38,6 +38,7 @@ import { confirm } from "./app/modals";
 import "./styles.css";
 import "./sidebar.css";
 import "./tabs.css";
+import "./buttons.css";
 import type { CredentialStatus, TerminalEvent, TransferProgress } from "./types";
 
 let finishBootstrap: () => void;
