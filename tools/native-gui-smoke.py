@@ -672,9 +672,20 @@ try:
     wait(lambda: (data_dir / "session.json").exists() and len(list((data_dir / "sessions").glob('*.json'))) >= 1, "every window saved before exit")
     def app_exited():
         try:
-            return not request("GET", f"/session/{session}/window/handles")
+            handles=request("GET", f"/session/{session}/window/handles")
         except (RuntimeError, urllib.error.URLError, http.client.RemoteDisconnected):
             return True
+        # Explicit command profiles are conservatively classified as running
+        # jobs. Confirm only our disposable sessions, in every test window.
+        for handle in handles:
+            try:
+                request('POST', f'/session/{session}/window', {'handle':handle})
+                if shown('[data-action="accept-app-dialog"]'):
+                    screenshot('shutdown-confirmation.png')
+                    click('[data-action="accept-app-dialog"]')
+            except (RuntimeError, urllib.error.URLError, http.client.RemoteDisconnected):
+                pass # A window may close while the all-window barrier completes.
+        return not handles
     wait(app_exited, "coordinated quit completed without killing the application")
     try:
         request("DELETE", f"/session/{session}")
