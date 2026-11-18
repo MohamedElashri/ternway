@@ -19,6 +19,10 @@ export interface ColorConfig {
 export interface TerminalConfig {
   appTheme: string | null;
   interfaceScale: number | null;
+  sidebarWidth: number;
+  sidebarCollapsed: boolean;
+  toolsSidebarWidth: number;
+  toolsSidebarCollapsed: boolean;
   title: string | null;
   fullscreen: boolean | null;
   adjustUnderlinePosition: number;
@@ -93,6 +97,10 @@ export interface ParsedConfig {
 export const DEFAULT_CONFIG: TerminalConfig = {
   appTheme: null,
   interfaceScale: null,
+  sidebarWidth: 260,
+  sidebarCollapsed: false,
+  toolsSidebarWidth: 190,
+  toolsSidebarCollapsed: false,
   title: null,
   fullscreen: null,
   adjustUnderlinePosition: 0,
@@ -209,6 +217,21 @@ export function parseConfig(entries: ConfigEntry[]): ParsedConfig {
         else if ([0.8, 1, 1.2, 1.4, 1.6, 1.8, 2].includes(Number(value))) config.interfaceScale = Number(value);
         else invalid();
         break;
+      case "sidebar-width":
+      case "tools-sidebar-width": {
+        const tools = key === "tools-sidebar-width";
+        const width = value ? Number(value) : tools ? 190 : 260;
+        if (!Number.isInteger(width) || width < (tools ? 140 : 160) || width > (tools ? 400 : 600)) { invalid(); break; }
+        if (tools) config.toolsSidebarWidth = width; else config.sidebarWidth = width;
+        break;
+      }
+      case "sidebar-collapsed":
+      case "tools-sidebar-collapsed": {
+        const flag = value ? parseBoolean(value) : false;
+        if (flag === null) { invalid(); break; }
+        if (key === "sidebar-collapsed") config.sidebarCollapsed = flag; else config.toolsSidebarCollapsed = flag;
+        break;
+      }
       case "title": config.title = value || null; break;
       case "fullscreen":
       case "window-decoration":

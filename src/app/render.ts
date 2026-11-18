@@ -1,3 +1,4 @@
+import { applySidebarLayout, sidebarControls, sidebarSeparator } from "./sidebar-layout";
 import { renderWorkspaceTab } from "./tab-view";
 import { renderUpdateNotice } from "./update-view";
 import { updates } from "./updater";
@@ -53,6 +54,7 @@ export function render(): void {
   root.dataset.colorTheme = state.themeId;
   root.dataset.platform = platform;
   root.innerHTML = quickMode ? renderQuickShell() : `${renderTitlebar()}${state.loading ? renderLoading() : renderShell()}`;
+  applySidebarLayout(root);
   restoreConnectionForm(root, previousConnectionForm);
   restoreConnectionForm(root, previousPasswordForm);
   restoreConnectionForm(root, previousImportForm);
@@ -188,8 +190,14 @@ export function shortGroupLabel(group: string): string {
 export function renderServerRail(): string {
   const servers = filteredServers();
   const query = state.serverQuery.trim().toLowerCase();
-  return `<aside class="server-rail" aria-label="Connections">
-    <div class="server-rail-flyout">
+  return `<aside class="server-rail" id="connections-sidebar" data-sidebar="connections" aria-label="Connections">
+    ${sidebarControls("connections")}
+    <div class="compact-library" data-sidebar-compact hidden>
+      <button class="icon-button" type="button" data-sidebar-search aria-label="Search connections" title="Search connections">${icon("search")}</button>
+      <button class="icon-button" type="button" data-action="add-server" aria-label="New connection" title="New connection">${icon("plus")}</button>
+      <button class="icon-button" type="button" data-action="credential-settings" aria-label="Settings" title="Settings">${icon("settings")}</button>
+    </div>
+    <div class="server-rail-flyout" data-sidebar-expanded>
       ${platform === "linux" ? "" : `<div class="rail-brand"><span class="brand-mark">${icon("logo")}</span><span class="rail-brand-name">Ternway</span></div>`}
       <div class="sidebar-section server-section">
         <div class="section-label-row"><span class="section-label">Connections</span><span class="connection-drag-hint" title="Drag connections to reorder or move between folders. Alt+↑/↓ moves the focused item.">Drag to organize</span></div>
@@ -206,6 +214,7 @@ export function renderServerRail(): string {
         <button class="button button-quiet library-add" data-action="import-ssh-config">Import SSH config</button><button class="button button-primary library-add" data-action="add-server">${icon("plus")} New connection</button>
       </div>
     </div>
+    ${sidebarSeparator("connections")}
   </aside>`;
 }
 
@@ -213,7 +222,7 @@ export function renderSidebar(): string {
   if (activeServer()?.authMethod === "openSsh") {
     const ready = connectedServerIds.has(activeServer()!.id);
     const shared = activeServer()!.openSsh?.shareConnection !== false;
-    return `<aside class="sidebar"><div class="sidebar-section nav-section"><div class="section-label">OpenSSH connection</div>${[["terminal", "Terminal", "terminal"], ["files", "Files", "files"], ["tunnels", "SSH tunnels", "network"]].map(([view, label, glyph]) => `<button class="nav-item ${state.activeView === view ? "active" : ""}" data-view="${view}" ${view !== "terminal" && !ready ? "disabled" : ""}>${icon(glyph as Parameters<typeof icon>[0])}<span>${label}</span></button>`).join("")}<p class="field-hint">${!shared ? "Enable connection sharing in the connection editor to use files and tunnels." : ready ? "Terminal, files and tunnels share this authenticated connection." : "Authenticate in the terminal to enable files and tunnels."}</p></div>${renderSidebarBottom()}</aside>`;
+    return `<aside class="sidebar" id="tools-sidebar" data-sidebar="tools" aria-label="Connection tools">${sidebarControls("tools")}<div class="sidebar-section nav-section"><div class="section-label">OpenSSH connection</div>${[["terminal", "Terminal", "terminal"], ["files", "Files", "files"], ["tunnels", "SSH tunnels", "network"]].map(([view, label, glyph]) => `<button class="nav-item ${state.activeView === view ? "active" : ""}" data-view="${view}" aria-label="${label}" title="${label}" ${view !== "terminal" && !ready ? "disabled" : ""}>${icon(glyph as Parameters<typeof icon>[0])}<span>${label}</span></button>`).join("")}<p class="field-hint" data-sidebar-expanded>${!shared ? "Enable connection sharing in the connection editor to use files and tunnels." : ready ? "Terminal, files and tunnels share this authenticated connection." : "Authenticate in the terminal to enable files and tunnels."}</p></div>${renderSidebarBottom()}${sidebarSeparator("tools")}</aside>`;
   }
   const nav = [
     ["terminal", "Terminal", "terminal"],
@@ -233,15 +242,16 @@ export function renderSidebar(): string {
     ["administration", "Administration", "settings"],
   ] as const;
   const unsupported = (view: View): boolean => Boolean(unavailableToolReason(view, activeCapabilities(), activeServer()?.authMethod));
-  return `<aside class="sidebar">
+  return `<aside class="sidebar" id="tools-sidebar" data-sidebar="tools" aria-label="Connection tools">${sidebarControls("tools")}
     <div class="sidebar-section nav-section"><div class="section-label">Connection tools</div>${nav.map(([view, label, iconName]) => `<button class="nav-item ${state.activeView === view ? "active" : ""}" data-view="${view}" title="${unavailableToolReason(view, activeCapabilities(), activeServer()?.authMethod) ?? label}" aria-label="${label}" ${!activeServerIsConnected() || unsupported(view) ? "disabled" : ""}>${icon(iconName)}<span>${label}</span>${unsupported(view) ? `<small>Unavailable</small>` : ""}</button>`).join("")}</div>
     ${renderSidebarBottom()}
+    ${sidebarSeparator("tools")}
   </aside>`;
 }
 
 function renderSidebarBottom(): string {
   return `<div class="sidebar-bottom">
-      <button class="utility-link" data-action="credential-settings">${icon("settings")} Settings</button>
+      <button class="utility-link" data-action="credential-settings" aria-label="Settings" title="Settings">${icon("settings")}<span>Settings</span></button>
     </div>`;
 }
 

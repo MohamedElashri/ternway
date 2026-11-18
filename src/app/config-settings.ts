@@ -26,6 +26,10 @@ const number = (key: string, label: string, property: string, group: string, min
 export const CONFIG_SETTINGS: readonly SettingDefinition[] = [
   select("app-theme", "Workspace theme", "appTheme", "Workspace", ["", ...THEME_PRESETS.map(theme => theme.id)]),
   select("interface-scale", "Interface scale", "interfaceScale", "Workspace", ["", "0.8", "1", "1.2", "1.4", "1.6", "1.8", "2"]),
+  number("sidebar-width", "Connections width (pixels)", "sidebarWidth", "Workspace", 160, 600, "Drag the connection sidebar edge to resize; widths adapt to leave room for the workspace."),
+  bool("sidebar-collapsed", "Collapse connections", "sidebarCollapsed", "Workspace"),
+  number("tools-sidebar-width", "Connection tools width (pixels)", "toolsSidebarWidth", "Workspace", 140, 400),
+  bool("tools-sidebar-collapsed", "Collapse connection tools", "toolsSidebarCollapsed", "Workspace"),
   lines("font-family", "Font families", "fontFamily", "Text", "One font per line, in fallback order. Empty uses bundled JetBrains Mono."),
   number("font-size", "Font size (points)", "fontSize", "Text", 0, 200),
   text("theme", "Terminal theme", "theme", "Text", "Theme name or light:Name,dark:Name. Empty follows the workspace theme."),
@@ -104,7 +108,7 @@ export function updatesFromFields(fields: Iterable<[string, string]>, baseline: 
   return updates;
 }
 
-export const MAIN_ONLY_SETTINGS = new Set(["app-theme", "interface-scale", "fullscreen", "window-width", "window-height", "window-theme", "window-decoration", "window-save-state", "clipboard-history", "save-scrollback", "quick-terminal-position", "quick-terminal-size", "quick-terminal-autohide", "auto-update", "auto-update-channel"]);
+export const MAIN_ONLY_SETTINGS = new Set(["sidebar-width", "sidebar-collapsed", "tools-sidebar-width", "tools-sidebar-collapsed", "app-theme", "interface-scale", "fullscreen", "window-width", "window-height", "window-theme", "window-decoration", "window-save-state", "clipboard-history", "save-scrollback", "quick-terminal-position", "quick-terminal-size", "quick-terminal-autohide", "auto-update", "auto-update-channel"]);
 
 export function renderConfigFields(config: TerminalConfig, values?: ReadonlyMap<string, string>, profile = false): string {
   const groups = [...new Set(CONFIG_SETTINGS.map(field => field.group))];

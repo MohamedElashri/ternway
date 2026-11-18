@@ -271,6 +271,33 @@ defaults; dimmed, high-contrast, colorblind and Dracula presets are also include
 live to the workspace and fallback terminal palette. The light/dark shortcut remembers your last
 choice in each mode. Explicit terminal config and profile colors keep priority. See [theme details](docs/THEMES.md).
 
+## Sidebar layout
+
+The Connections library and connection tools each have a collapse/expand button at the top.
+Compact Connections keeps Search, New connection and Settings available; compact tools keeps
+its navigation icons. Search (or Ctrl+K / ⌘K outside a terminal) expands the library and focuses
+its search field. Collapsing either sidebar leaves the active terminal or tool view in place.
+
+Drag a sidebar's right edge to change its width. You can also focus that edge with Tab and use
+Left/Right arrows (10 pixels), Shift+Left/Right (40 pixels), Home (minimum), or End (available
+maximum). Release the pointer or key to save; Escape, lost pointer capture or window focus
+cancels an unfinished resize. Double-click the edge or use its top Reset width button to
+restore the default width. Narrow windows temporarily reduce the displayed widths to leave
+room for the workspace; enlarging the window restores your preferred widths.
+
+Widths and collapsed states are stored in the main configuration and can also be edited in
+Settings → Terminal → Workspace:
+
+```ini
+sidebar-width = 260
+sidebar-collapsed = false
+tools-sidebar-width = 190
+tools-sidebar-collapsed = false
+```
+
+Connections accepts 160–600 pixels, and tools accepts 140–400 pixels. These settings apply
+across profiles and do not change the quick terminal window.
+
 ## Editing terminal settings
 
 Settings → Terminal provides controls for every supported config key, including fonts,
