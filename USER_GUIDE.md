@@ -283,7 +283,9 @@ Left/Right arrows (10 pixels), Shift+Left/Right (40 pixels), Home (minimum), or 
 maximum). Release the pointer or key to save; Escape, lost pointer capture or window focus
 cancels an unfinished resize. Double-click the edge or use its top Reset width button to
 restore the default width. Narrow windows temporarily reduce the displayed widths to leave
-room for the workspace; enlarging the window restores your preferred widths.
+room for the workspace; enlarging the window restores your preferred widths. If the
+interface is too small to expand a rail, Expand and Search explain that you need to enlarge
+the window or reduce Interface scale; their controls remain keyboard-discoverable.
 
 Widths and collapsed states are stored in the main configuration and can also be edited in
 Settings → Terminal → Workspace:
