@@ -42,8 +42,6 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_native_webdriver.py'
       - name: Build isolated native test application
         run: npm run tauri -- build --debug --no-bundle --config '{"productName":"Ternway CI","identifier":"dev.elashri.ternway.ci","bundle":{"createUpdaterArtifacts":false}}'
-      - name: Install pinned native WebDriver
-        run: cargo install tauri-driver --version 2.1.0 --locked
       # Reuse one compiled binary and dependency installation for both displays.
       - name: Exercise native X11 WebKitGTK
         timeout-minutes: 8
