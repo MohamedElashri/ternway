@@ -281,6 +281,12 @@ try:
     assert sections[-1] == "About", sections
     assert read("return document.querySelector('#app').dataset.colorTheme;") == 'github-dark'
     theme_backgrounds = [('github-light','#ffffff'), ('github-dark','#0d1117'), ('github-dark-dimmed','#22272e'), ('github-light-high-contrast','#ffffff'), ('github-dark-high-contrast','#0a0c10'), ('github-light-colorblind','#ffffff'), ('github-dark-colorblind','#0d1117'), ('dracula','#282a36')]
+    def saved_theme_is(theme_id):
+        values = [line.partition('=')[2].strip().strip('"') for line in (config / 'config').read_text().splitlines()
+                  if line.partition('=')[0].strip() == 'app-theme']
+        return bool(values) and values[-1] == theme_id
+    def wait_saved_theme(theme_id):
+        wait(lambda: saved_theme_is(theme_id), f'{theme_id} workspace preference saved to config')
     def primary_button_metrics():
         return read("""
           const button=document.querySelector('.settings-footer .button-primary'),style=getComputedStyle(button),rect=button.getBoundingClientRect();
@@ -304,11 +310,15 @@ try:
         assert hovered['contrast']>=4.5 and hovered['transform']=='none' and abs(hovered['top']-normal['top'])<0.1, (theme_id,hovered)
         if theme_id in ['github-dark','github-light']:
             screenshot(theme_id + '.png')
+    # Theme previews update immediately. External file edits must wait for the
+    # preference write rather than racing its revision-checked save.
+    wait_saved_theme('dracula')
     original_config = (config / 'config').read_text()
     (config / 'config').write_text(original_config + 'background = #123456\n')
     wait(lambda: read("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#123456';"), 'explicit terminal color applied')
     click('[data-theme-id="github-light"]')
     wait(lambda: read("return document.querySelector('#app').dataset.colorTheme==='github-light' && getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#123456';"), 'terminal config color survives workspace theme change')
+    wait_saved_theme('github-light')
     # Appearance choices now persist to this file. Remove only the terminal
     # color override so the current workspace theme remains selected.
     current_config = (config / 'config').read_text()
@@ -316,12 +326,14 @@ try:
     wait(lambda: read("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#ffffff';"), 'terminal returns to preset after removing color override')
     click('[data-theme-id="github-dark-dimmed"]')
     wait(lambda: read("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#22272e';"), 'dimmed palette restored')
+    wait_saved_theme('github-dark-dimmed')
     check('all built-in themes apply live; primary buttons retain text contrast and stable hover geometry in every theme')
     click('[data-action="close-modal"]')
     assert read("return document.querySelectorAll('[data-action=theme]').length;") == 1
     click('[data-action="theme"]')
-    if read("return document.querySelector('[data-theme]')?.dataset.theme;") != "dark":
-        click('[data-action="theme"]')
+    wait(lambda: read("return document.querySelector('#app').dataset.colorTheme==='github-light';") and saved_theme_is('github-light'), 'global toggle applies and saves the light theme')
+    click('[data-action="theme"]')
+    wait(lambda: read("return document.querySelector('#app').dataset.colorTheme==='github-dark-dimmed';") and saved_theme_is('github-dark-dimmed'), 'global toggle restores and saves the chosen dark variant')
     check("settings order and native dark-mode controls")
 
     click('[data-action="add-server"]')
