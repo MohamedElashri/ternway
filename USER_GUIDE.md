@@ -2,7 +2,7 @@
 
 ## What it does
 
-- Opens a local shell on launch: your login shell on a real PTY, with xterm.js and WebGL rendering.
+- Opens a local shell on launch: your login shell on a real PTY, with native libghostty-vt rendering.
 - Connects to servers with password or private-key authentication, including SSH config import and
   bastion (ProxyJump-style) routes.
 - Stores passwords, key passphrases and sudo credentials in an encrypted local vault protected by a
@@ -34,6 +34,30 @@ its connections and its subfolders’ connections back to the default folder.
 Empty folders are kept. Existing groups appear as folders automatically. Names, membership and
 ordering are saved across restarts, shared between windows and included in library backups.
 
+## Importing and refreshing SSH connections
+
+Choose **Import SSH config** in the connection sidebar, select a file (usually
+`~/.ssh/config`), and choose **Review connections**. Included files are read as well.
+Reviewing or importing does not connect to hosts or execute configured commands.
+
+The review offers **Add new**, **Update imported**, and **Add & update**. Check individual
+connections, use **Select all hosts** for the whole file, or search and use **Select shown**.
+Git service aliases are available but are not selected automatically.
+
+New connections go into the permanent **Default** folder, including when you have renamed
+that folder. You can choose another destination or create a folder. Updates preserve existing
+connection IDs, names, folders, tags, notes and favorites.
+
+After editing your SSH config, open the same file again or choose **Reload file** in the
+review. Previously imported hosts are recognized by file, alias and connection type. Choose
+**Update imported** and save the selection. Hosts removed from the file stay in your library.
+Updating may disconnect active sessions so subsequent connections use refreshed settings.
+
+Under **Connection options**, new connections use OpenSSH configuration when connecting by
+default. **Copy settings into Ternway** creates a managed copy of supported host, username,
+port and key settings. Existing imports retain their original connection type when updated;
+copying a changed file does not create a second linked connection for the same import.
+
 ## Workspaces and tabs
 
 Close any local terminal with its **×**, including the last one. Ternway leaves an empty terminal
@@ -47,8 +71,8 @@ Workspace and terminal tabs use the same spacing and close controls. Use **←/�
 remote workspace or terminal tab. Double-clicking its title also opens rename. Drag tabs to
 reorder them; Local stays first among workspaces.
 
-The terminal engine is **xterm.js 6**, with Rust managing PTYs and SSH. Ghostty-style configuration
-and keybindings are supported; Ghostty itself is not embedded.
+The terminal uses **native libghostty-vt**, with Rust managing PTYs and SSH. Ghostty-style
+configuration and keybindings are supported.
 
 ## Keybindings
 

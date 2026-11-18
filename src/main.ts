@@ -40,6 +40,7 @@ import { confirm } from "./app/modals";
 import "./styles.css";
 import "./sidebar.css";
 import "./sidebar-layout.css";
+import "./ssh-import.css";
 import "./tabs.css";
 import "./buttons.css";
 import type { CredentialStatus, TerminalEvent, TransferProgress } from "./types";

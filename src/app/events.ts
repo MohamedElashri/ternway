@@ -365,8 +365,12 @@ export async function runAction(action: string, target: HTMLElement = document.c
       break;
     }
     case "import-ssh-config": sshImport.reset(); state.modal = "ssh-import"; render(); break;
+    case "reload-ssh-config":
     case "load-ssh-config": await sshImport.scan(target.closest<HTMLFormElement>("form")!); break;
     case "browse-ssh-config": await sshImport.browse(target.closest<HTMLFormElement>("form")!); break;
+    case "change-import-file": sshImport.changeFile(target.closest<HTMLFormElement>("form")!); break;
+    case "set-import-intent": sshImport.setIntent(target.closest<HTMLFormElement>("form")!, target.dataset.importIntent as "new" | "updates" | "all"); break;
+    case "select-all-import-hosts": sshImport.select(target.closest<HTMLFormElement>("form")!, true, true); break;
     case "select-import-hosts": sshImport.select(target.closest<HTMLFormElement>("form")!, true); break;
     case "clear-import-hosts": sshImport.select(target.closest<HTMLFormElement>("form")!, false); break;
     case "cancel-ssh-import": sshImport.cancel(target.closest<HTMLFormElement>("form")!); break;
