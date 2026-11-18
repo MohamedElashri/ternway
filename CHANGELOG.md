@@ -11,6 +11,7 @@
 - Reuse connection rows during search, load closed folders on demand and preserve the library across view changes.
 - Repaint changed terminal rows, preserve accessibility rows and index search highlights before drawing.
 - Reuse unchanged native terminal search results and avoid loading every connection for background tunnel checks.
+- Batch database schema setup to reduce startup disk synchronization while preserving transactional migration and backup recovery.
 - Keep terminal clipboard requests ordered and bound to the originating session, with access denied by default.
 
 ## 0.4.1 - 2026-11-17
