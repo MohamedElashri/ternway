@@ -119,6 +119,8 @@ export function renderConnectionSidebar(focus?: string): void {
   const list = root.querySelector<HTMLElement>(".server-list");
   if (!list) return;
   const active = document.activeElement as HTMLElement | null;
+  const requestedFocus = focus;
+  const retainedFocus = active && list.contains(active) ? active : null;
   if (!focus && active && list.contains(active)) {
     const server = active.closest<HTMLElement>("[data-server-id]");
     const folder = active.closest<HTMLElement>("[data-action=folder-actions]");
@@ -138,7 +140,9 @@ export function renderConnectionSidebar(focus?: string): void {
     menuFolder: state.folderMenuPath,
   }, renderServerItem, connectionRowRevision);
   list.scrollTop = scroll;
-  if (focus) list.querySelector<HTMLElement>(focus)?.focus({ preventScroll: true });
+  if (!requestedFocus && retainedFocus?.isConnected) {
+    if (document.activeElement !== retainedFocus) retainedFocus.focus({ preventScroll: true });
+  } else if (focus) list.querySelector<HTMLElement>(focus)?.focus({ preventScroll: true });
 }
 
 function activeGroupTitle(): string | undefined {
