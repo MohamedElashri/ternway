@@ -76,14 +76,18 @@ def invoke(command, **args):
     return result.get("value")
 
 def element(selector):
-    result = request("POST", f"/session/{session}/element", {"using": "css selector", "value": selector})
+    # Expanded and compact rails expose the same actions. Resolve the visible
+    # control rather than whichever hidden variant occurs first in DOM order.
+    result = read("return [...document.querySelectorAll(arguments[0])].find(el=>!!el.getClientRects().length) ?? null;", selector)
+    if result is None:
+        raise RuntimeError(f'No visible element: {selector}')
     return result["element-6066-11e4-a52e-4f735466cecf"]
 
 def click(selector):
     deadline = time.monotonic() + 30
     def prepare():
         target = element(selector)
-        present = execute("const el=document.querySelector(arguments[0]); if(!el) return false; el.scrollIntoView({block:'center'}); return true;", selector,idempotent=True)
+        present = execute("arguments[0].scrollIntoView({block:'center'});return true;", {"element-6066-11e4-a52e-4f735466cecf": target}, idempotent=True)
         return target if present else None
     while time.monotonic() < deadline:
         # Lookup/scroll are safe to retry if WebKit resets its connection during
@@ -107,7 +111,7 @@ def type_into(selector, text):
         request("POST", f"/session/{session}/element/{target}/value", {"text": text, "value": list(text)})
 
 def shown(selector):
-    return read("const el=document.querySelector(arguments[0]);return !!el && !!el.getClientRects().length;", selector)
+    return read("return [...document.querySelectorAll(arguments[0])].some(el=>!!el.getClientRects().length);", selector)
 
 def compact_terminal_geometry():
     result = read("""
@@ -162,6 +166,7 @@ trap.listen()
 port = trap.getsockname()[1]
 ssh_config = root / "ssh-config"
 ssh_config.write_text(f"Host ci-loopback\n HostName 127.0.0.1\n User qa\n Port {port}\nHost github.com\n HostName github.com\n User git\n")
+sidebar_restart_config = None
 try:
     wait(lambda: request("GET", "/status") is not None, "driver startup")
     start()
@@ -501,6 +506,8 @@ try:
     assert read("return document.querySelectorAll('[data-action=theme]').length;") == 1, 'Remote sidebar must not duplicate the global theme toggle'
     click('.nav-item[data-view="terminal"]')
     wait(lambda: read("return document.querySelector('.terminal-layer')?.textContent.includes('fixture-terminal-ready');"), 'interactive SSH terminal output')
+    import native_sidebar_review
+    native_sidebar_review.run(globals())
     def check_tab_alignment():
         def measured():
             return read("const work=[...document.querySelectorAll('.workspace-tab')].map(el=>{const r=el.getBoundingClientRect();return {height:r.height,top:r.top};});const terms=[...document.querySelectorAll('.term-tab')].map(el=>el.getBoundingClientRect().height);const visible=[...document.querySelectorAll('.workspace-tabs .workspace-tab.active,.terminal-tab-list .term-tab.active')].every(el=>{const a=el.getBoundingClientRect(),b=el.parentElement.getBoundingClientRect();return a.left>=b.left-1&&a.right<=b.right+1;});return {work,terms,visible,nested:document.querySelectorAll('button button').length};")
@@ -727,6 +734,7 @@ try:
     history_escaped=''.join('\\%03o'%byte for byte in history_marker.encode())
     request('POST', f'/session/{session}/element/{history_input}/value', {'text': f"printf '{history_escaped}\\n'\n"})
     wait(lambda:read("return document.querySelector('.terminal-layer')?.textContent.includes(arguments[0]);",history_marker),'history before coordinated quit')
+    sidebar_restart_config = native_sidebar_review.prepare_restart(globals())
 
     # Quit exercises the same all-window save barrier used by updater restart.
     execute("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('request_app_quit'),0); return true;")
@@ -770,8 +778,13 @@ try:
     check("damaged transfer queue is retained without blocking native terminal startup")
     screenshot("restored-layout.png")
     check("all native windows save and reopen dormant with opted-in history and no command replay")
+    native_sidebar_review.verify_restart(globals())
+    (config / 'config').write_text(sidebar_restart_config)
+    sidebar_restart_config = None
     (artifacts / "results.json").write_text(json.dumps({"backend": os.environ.get("GDK_BACKEND"), "checks": checks}, indent=2))
 finally:
+    if sidebar_restart_config is not None:
+        (config / 'config').write_text(sidebar_restart_config)
     if session:
         try:
             if verified_app: screenshot("final.png")

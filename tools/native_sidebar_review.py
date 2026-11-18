@@ -3,6 +3,46 @@
 Call run(globals()) from native-gui-smoke.py after connecting the SSH fixture, while
 its remote workspace is active. The harness owns the config, window, and terminals.
 """
+import sys
+
+
+def prepare_restart(g):
+    """Use the suite's existing coordinated restart to verify durable preferences."""
+    path = g['config'] / 'config'
+    original = path.read_text()
+    keys = {'sidebar-width', 'sidebar-collapsed', 'tools-sidebar-width', 'tools-sidebar-collapsed'}
+    base = '\n'.join(line for line in original.splitlines() if line.partition('=')[0].strip() not in keys) + '\n'
+    path.write_text(base + 'sidebar-width = 310\nsidebar-collapsed = true\ntools-sidebar-width = 205\ntools-sidebar-collapsed = true\n')
+    try:
+        g['wait'](lambda: g['read']("return document.querySelector('[data-sidebar=connections]')?.dataset.compact==='true';"), 'compact connection preference applies before restart')
+    except Exception:
+        path.write_text(original)
+        raise
+    return original
+
+
+def verify_restart(g):
+    assert g['read']("return document.querySelector('[data-sidebar=connections]')?.dataset.compact==='true';"), 'connection collapse preference lost on restart'
+    g['click']('[data-sidebar-toggle="connections"]')
+    g['wait'](lambda: g['read']("return Math.round(document.querySelector('[data-sidebar=connections]').getBoundingClientRect().width)===310;"), 'preferred connection width survives restart')
+    # A restored remote workspace remains dormant; selecting it must not start a shell.
+    handles = g['request']('GET', f"/session/{g['session']}/window/handles")
+    found = False
+    for handle in handles:
+        g['request']('POST', f"/session/{g['session']}/window", {'handle': handle})
+        if g['shown']('.workspace-tab:not(.workspace-tab-local)[data-workspace-tab]'):
+            g['click']('.workspace-tab:not(.workspace-tab-local)[data-workspace-tab]')
+            g['wait'](lambda: g['shown']('[data-sidebar="tools"]'), 'dormant remote workspace exposes its tool rail')
+            assert g['read']("return document.querySelector('[data-sidebar=tools]').dataset.compact==='true';"), 'tool collapse preference lost on restart'
+            g['click']('[data-sidebar-toggle="tools"]')
+            g['wait'](lambda: g['read']("return Math.round(document.querySelector('[data-sidebar=tools]').getBoundingClientRect().width)===205;"), 'preferred tool width survives restart')
+            ids = g['read']("return [...document.querySelectorAll('.term-tab')].map(el=>el.dataset.terminalTab);")
+            assert all(value == 'closed' for value in g['invoke']('terminal_activities', sessionIds=ids).values()), 'sidebar persistence check started a dormant process'
+            found = True
+            break
+    assert found, 'restored SSH workspace required to verify tool rail persistence'
+    g['screenshot']('sidebar-preferences-restored.png')
+    g['check']('independent sidebar widths and compact preferences survive coordinated quit and restart')
 
 
 def run(g):
@@ -36,7 +76,7 @@ def run(g):
         g['request']('POST', f"/session/{g['session']}/actions", {'actions': [{'type': 'pointer', 'id': 'sidebar-pointer', 'parameters': {'pointerType': 'mouse'}, 'actions': actions}]})
 
     def retained():
-        return g['read']("return window.__sidebarReviewMain===document.querySelector('.content-area') && window.__sidebarReviewTerminal===document.querySelector('.terminal-host');")
+        return g['read']("return window.__sidebarReviewMain===document.querySelector('.content-area') && window.__sidebarReviewTerminal===document.querySelector('.terminal-host:not([hidden])');")
 
     try:
         if g['shown']('.modal'):
@@ -47,7 +87,7 @@ def run(g):
         g['request']('POST', f"/session/{g['session']}/window/rect", {'width': 1200, 'height': 780})
         layout('sidebar-width = 260\nsidebar-collapsed = false\ntools-sidebar-width = 190\ntools-sidebar-collapsed = false\n')
         g['wait'](lambda: width('connections') == 260 and width('tools') == 190, 'external sidebar config applies live')
-        g['execute']("window.__sidebarReviewMain=document.querySelector('.content-area');window.__sidebarReviewTerminal=document.querySelector('.terminal-host');return true;")
+        g['execute']("window.__sidebarReviewMain=document.querySelector('.content-area');window.__sidebarReviewTerminal=document.querySelector('.terminal-host:not([hidden])');return true;")
         before = path.read_text()
         pointer('connections', 70, release=False)
         assert path.read_text() == before, 'resize must not write config during pointer movement'
@@ -56,15 +96,24 @@ def run(g):
         g['wait'](lambda: 'sidebar-width = 330' in path.read_text(), 'pointer width committed to main config')
         assert retained(), 'pointer resizing replaced content or terminal DOM'
 
+        before = path.read_text()
+        pointer('tools', 10, release=False)
+        assert width('tools') == 200 and path.read_text() == before, 'tool separator wrote config before pointer release'
+        g['request']('POST', f"/session/{g['session']}/actions", {'actions': [{'type': 'pointer', 'id': 'sidebar-pointer', 'parameters': {'pointerType': 'mouse'}, 'actions': [{'type': 'pointerUp', 'button': 0}]}]})
+        g['wait'](lambda: 'tools-sidebar-width = 200' in path.read_text(), 'tool pointer width committed to main config')
+
         focus_handle('tools')
         key('\ue014')  # ArrowRight
-        g['wait'](lambda: width('tools') == 200 and 'tools-sidebar-width = 200' in path.read_text(), 'keyboard separator width persists')
+        g['wait'](lambda: width('tools') == 210 and 'tools-sidebar-width = 210' in path.read_text(), 'keyboard separator width persists')
         focus_handle('connections')
         key('\ue014', up=False)
         assert width('connections') == 340
         key('\ue00c')  # Escape rolls back the pending key gesture.
         key('\ue014', down=False)
         assert width('connections') == 330 and 'sidebar-width = 330' in path.read_text()
+        focus_handle('connections')
+        key('\ue014')
+        g['wait'](lambda: width('connections') == 340 and 'sidebar-width = 340' in path.read_text(), 'connection keyboard separator width persists')
         assert retained(), 'keyboard resizing replaced terminal DOM'
         g['check']('both native separators resize with pointer and keyboard, commit only on release, and Escape rolls back')
 
@@ -77,6 +126,7 @@ def run(g):
         assert g['shown']('[data-sidebar="tools"] [data-view="terminal"]')
         assert not g['shown']('[data-sidebar-expanded] input')
         assert g['read']("return document.querySelector('[data-sidebar-resize=connections]').tabIndex===-1 && document.querySelector('[data-sidebar-toggle=connections]').getAttribute('aria-expanded')==='false';")
+        g['screenshot']('sidebar-desktop-compact.png')
         g['click']('[data-sidebar-search]')
         g['wait'](lambda: not compact('connections') and g['read']("return document.activeElement?.dataset.field==='server-search';"), 'compact search expands and focuses the connection search')
         assert compact('tools') and retained()
@@ -98,8 +148,34 @@ def run(g):
         assert retained()
         g['screenshot']('sidebar-desktop-expanded.png')
         g['check']('640px native window retains a 320px workspace and restores preferred sidebar widths when enlarged')
+
+        # Settings navigation renders the application shell. The connection list
+        # and its rows should remain mounted when their model has not changed.
+        g['execute']("window.__sidebarReviewList=document.querySelector('.server-list');window.__sidebarReviewRows=[...document.querySelectorAll('.server-item')];return true;")
+        g['click']('[data-action="credential-settings"]')
+        g['wait'](lambda: g['shown']('.modal-settings'), 'Settings renders over the remote workspace')
+        g['click']('[data-settings-page="terminal"]')
+        g['click']('[data-action="close-modal"]')
+        assert g['read']("return window.__sidebarReviewList===document.querySelector('.server-list') && window.__sidebarReviewRows.length>0 && window.__sidebarReviewRows.every(row=>row===document.querySelector('.server-item[data-server-id=\"'+CSS.escape(row.dataset.serverId)+'\"]'));"), 'unrelated full renders replaced connection rows'
+        assert g['read']("return window.__sidebarReviewTerminal===document.querySelector('.terminal-host:not([hidden])');"), 'Settings replaced the active terminal'
+        g['check']('Settings open, page navigation and close retain existing connection rows and the active terminal')
     finally:
-        # Restore only this harness's isolated file and window; leave no changed preferences.
-        path.write_text(original)
-        g['request']('POST', f"/session/{g['session']}/window/rect", rect)
-        g['execute']("delete window.__sidebarReviewMain;delete window.__sidebarReviewTerminal;return true;")
+        # Release partial gestures even on assertion failure. Restore the owned
+        # file/window independently, preserving any original test failure.
+        failing = sys.exc_info()[0] is not None
+        cleanup = [
+            lambda: g['request']('DELETE', f"/session/{g['session']}/actions"),
+            lambda: path.write_text(original),
+            lambda: g['request']('POST', f"/session/{g['session']}/window/rect", rect),
+            lambda: g['execute']("delete window.__sidebarReviewMain;delete window.__sidebarReviewTerminal;delete window.__sidebarReviewList;delete window.__sidebarReviewRows;return true;"),
+        ]
+        errors = []
+        for restore in cleanup:
+            try:
+                restore()
+            except Exception as error:
+                errors.append(error)
+        if errors:
+            if not failing:
+                raise errors[0]
+            print(f'Sidebar cleanup observations: {errors}', file=sys.stderr)
