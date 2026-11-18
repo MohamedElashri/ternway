@@ -1,3 +1,4 @@
+import { configureSidebarLayout } from "./sidebar-layout";
 import { applyThemeTokens, namedTheme, themePreset, rememberTheme, type ThemePreset } from "./theme-presets";
 import { invoke } from "@tauri-apps/api/core";
 import { errorText } from "./command-client";
@@ -134,6 +135,7 @@ async function readTerminalConfig(announce = false): Promise<void> {
   }
   if (version !== configLoadVersion) return;
   state.terminalConfig = { path: loaded.path, revision: loaded.revision, includes: loaded.includes, sources: new Map(loaded.profiles.map(profile => [profile.name, { revision: profile.revision, includes: profile.includes }])), ...base, profiles, ignored, errors: [...loaded.errors, ...errors] };
+  if (!quickMode) configureSidebarLayout(root, config);
   state.keybindings = parseKeybindings(keybindLines(platform === "macos" ? MACOS_DEFAULTS : LINUX_DEFAULTS, config.keybinds));
   if (!quickMode) {
     // The main window owns the quick terminal's settings and global hotkey.

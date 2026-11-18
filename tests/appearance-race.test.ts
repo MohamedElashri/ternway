@@ -48,6 +48,7 @@ function fixture() {
     './keybindings': { LINUX_DEFAULTS: [], MACOS_DEFAULTS: [], parseKeybindings: () => [], quickTerminalShortcut: () => '' },
     './terminal': { applyTerminalAppearance: () => {} },
     './toasts': { setInterfaceScale: async () => {}, waitForInterfaceScaleChanges: async () => {}, showToast: () => {} },
+    './sidebar-layout': { configureSidebarLayout: () => {} },
     './window-config': { applyWindowConfig: async () => {} }, './updater': { configureAutomaticUpdates: () => {} },
   };
   function load(name: string): Record<string, (...args: any[]) => Promise<void>> {

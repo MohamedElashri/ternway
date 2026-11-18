@@ -1,3 +1,4 @@
+import { installSidebarLayout, searchConnections } from "./app/sidebar-layout";
 import { refreshConfigEditor } from "./app/config-editor";
 import { installConnectionSidebar, refreshConnectionLibrary } from "./app/connection-sidebar";
 import { installTabNavigation } from "./app/tab-view";
@@ -28,7 +29,7 @@ import { render } from "./app/render";
 import { composingText, matchKeybinding } from "./app/keybindings";
 import { appWindow, DEFAULT_INTERFACE_SCALE, quickMode, root, state } from "./app/state";
 import { togglePalette } from "./app/palette";
-import { loadTerminalConfig } from "./app/terminal-config";
+import { loadTerminalConfig, persistWorkspaceSetting } from "./app/terminal-config";
 import { installTabStripHandlers } from "./app/terminal-tabs";
 import { closeTerminalGroup, dropOnPane, installDockDivider, moveTab, paneAt, renameTab, restoreSession, runTerminalAction, type SavedSession } from "./app/terminal";
 import { dismissTransferToast, setInterfaceScale, showToast, stepInterfaceScale, syncTransferToast } from "./app/toasts";
@@ -37,6 +38,7 @@ import { saveSession, sessionSavingEnabled } from "./app/session-save";
 import { confirm } from "./app/modals";
 import "./styles.css";
 import "./sidebar.css";
+import "./sidebar-layout.css";
 import "./tabs.css";
 import "./buttons.css";
 import type { CredentialStatus, TerminalEvent, TransferProgress } from "./types";
@@ -116,6 +118,7 @@ async function installEventListeners(): Promise<void> {
   }));
 }
 
+if (!quickMode) installSidebarLayout(root, { persist: persistWorkspaceSetting, error: setError });
 installConnectionSidebar(root);
 installTabNavigation(root, "workspace", { select: selectWorkspaceTab, close: closeWorkspaceTab, rename: renameWorkspaceTab });
 installTabNavigation(root, "terminal", { select: id => { const group = state.terminalGroups.find(group => group.id === id); if (group) { state.activeTerminalTabId = group.focusedId; render(); } }, close: closeTerminalGroup, rename: renameTab });
@@ -200,7 +203,7 @@ window.addEventListener("keydown", (event) => {
   }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
-    root.querySelector<HTMLInputElement>('[data-field="server-search"]')?.focus();
+    searchConnections(root);
   }
 }, { capture: true });
 
