@@ -1232,3 +1232,33 @@ mod credential_privacy_tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 }
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "manual backend startup performance measurement"]
+    fn backend_perf_store_startup() {
+        let dir = std::env::temp_dir().join(format!("ternway-startup-perf-{}", Uuid::new_v4()));
+        let path = dir.join("state.sqlite");
+        let vault = dir.join("vault");
+        let start = std::time::Instant::now();
+        let store = Store::open(&path, &vault).unwrap();
+        let fresh = start.elapsed();
+        drop(store);
+        let start = std::time::Instant::now();
+        let store = Store::open(&path, &vault).unwrap();
+        let reopened = start.elapsed();
+        assert!(store.list_servers().unwrap().is_empty());
+        assert!(!vault.exists());
+        eprintln!(
+            "backend startup: fresh_us={} reopen_us={}",
+            fresh.as_micros(),
+            reopened.as_micros()
+        );
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+}
