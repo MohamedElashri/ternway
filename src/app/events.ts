@@ -26,7 +26,7 @@ import { cancelTransfer, changeRemoteMode, changeRemoteOwner, createFolder, dele
 import { changeMasterPasswordForm, createGroup, createUserForm, deleteActiveServer, deleteGroup, deleteServer, disconnectActiveServer, duplicateServer, openPackageDetails, resetCredentialsForm, resetUserPasswordForm, runCronAction, runPackageAction, runUserAction, saveCronForm, saveServerForm, saveWorkspaceTabRenameForm, submitMasterPasswordForm } from "./actions/servers";
 import { formatBytes } from "./format";
 import { confirm, requestTextInput, finishAppDialog, finishTextInput, message, renderAuthFieldsForForm } from "./modals";
-import { filteredServers, groupKey, render, renderConnectionSidebar, renderServerGroups } from "./render";
+import { groupKey, render, renderConnectionSidebar } from "./render";
 import { closeCustomSelects, syncCustomSelect } from "./select-controls";
 import { cancelCurrentOperation, finishHostKeyPrompt, finishSshPasswordPrompt, setError } from "./session";
 import { activeCapabilities, activeTerminalTabByWorkspace, appWindow, createLogViewer, DEFAULT_INTERFACE_SCALE, root, state } from "./state";
@@ -521,13 +521,8 @@ export function handleInput(event: Event): void {
   }
   if (input.dataset.field === "server-search") {
     state.serverQuery = input.value;
-    const list = root.querySelector<HTMLElement>(".server-list");
-    if (list) {
-      const servers = filteredServers();
-      list.innerHTML = servers.length || (!state.serverQuery.trim() && state.snapshot.connectionFolders?.length) ? renderServerGroups(servers) : `<div class="server-empty">${state.serverQuery.trim() ? "No matching servers" : "No servers saved yet"}</div>`;
-    } else {
-      render();
-    }
+    if (root.querySelector(".server-list")) renderConnectionSidebar();
+    else render();
   } else if (input.dataset.field === "service-search") {
     const query = input.value.toLowerCase();
     root.querySelectorAll<HTMLElement>("[data-service-row]").forEach((row) => { row.hidden = !row.dataset.serviceRow!.toLowerCase().includes(query); });

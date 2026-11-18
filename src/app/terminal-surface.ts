@@ -4,7 +4,8 @@ import { DEFAULT_HIGHLIGHT, type Trigger } from "./config";
 import { findPathCandidates, opensLink, type PathLinkOptions } from "./links";
 import { parseDirectoryReport } from "./shell-integration";
 import { matchTriggers } from "./triggers";
-import { drawGhostty, ghosttyModifiers, rowColumns, rowText, scrollbarMetrics, type GhosttyFrame, type Highlight } from "./ghostty-renderer";
+import { syncTerminalRows } from "./terminal-rows";
+import { GhosttyPaintState, drawGhostty, ghosttyModifiers, rowColumns, rowText, scrollbarMetrics, type GhosttyFrame, type Highlight } from "./ghostty-renderer";
 
 export interface TerminalAppearance {
   theme: TerminalTheme; fontFamily: string; fontSize: number;
@@ -30,6 +31,7 @@ export class TerminalSurface {
   readonly output: Channel<ArrayBuffer>;
   readonly ready: Promise<string>;
   private appearance: TerminalAppearance;
+  private readonly paintState = new GhosttyPaintState();
   private readonly canvas = document.createElement("canvas");
   private readonly input = document.createElement("textarea");
   private readonly accessible = document.createElement("div");
@@ -274,8 +276,9 @@ export class TerminalSurface {
   }
   private paint(): void {
     const frame = this.frame; if (!frame || this.disposed || this.host.hidden) return;
-    drawGhostty(this.canvas, frame, this.appearance.fontFamily, this.fontSize, this.cellWidth, this.cellHeight, this.appearance.theme.selectionBackground ?? "#264f78", this.images, this.highlights, this.appearance.theme.selectionForeground, this.appearance.adjustUnderlinePosition ?? 0);
-    this.accessible.replaceChildren(...frame.lines.map(row => { const line = document.createElement("div"); line.textContent = rowText(row).trimEnd(); return line; }));
+    const paintRows = this.paintState.changedRows(frame, JSON.stringify([this.appearance.fontFamily, this.fontSize, this.cellWidth, this.cellHeight, window.devicePixelRatio || 1, this.appearance.theme.selectionBackground, this.appearance.theme.selectionForeground, this.appearance.adjustUnderlinePosition]), this.highlights);
+    if (!paintRows || paintRows.size) drawGhostty(this.canvas, frame, this.appearance.fontFamily, this.fontSize, this.cellWidth, this.cellHeight, this.appearance.theme.selectionBackground ?? "#264f78", this.images, this.highlights, this.appearance.theme.selectionForeground, this.appearance.adjustUnderlinePosition ?? 0, paintRows);
+    syncTerminalRows(this.accessible, frame.lines);
     const scroll = scrollbarMetrics(frame.total, frame.rows, this.cellHeight, this.scrollbar.clientHeight);
     this.pixelsPerScrollRow = scroll.pixelsPerRow;
     this.scrollHeight.style.height = `${scroll.height}px`;
