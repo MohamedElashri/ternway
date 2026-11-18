@@ -30,11 +30,13 @@ config = root / "config" / "ternway"
 config.mkdir()
 (config / "config").write_text("command = /bin/sh\nenv = PS1=CI_TEST_PROMPT\nshell-integration = none\nwindow-save-state = always\nsave-scrollback = true\nclipboard-history = false\n")
 log = (artifacts / "driver.log").open("w")
-reserved=[socket.socket(),socket.socket()]
-for listener in reserved:listener.bind(('127.0.0.1',0))
-driver_port,native_port=[listener.getsockname()[1] for listener in reserved]
-for listener in reserved:listener.close()
-driver = subprocess.Popen(["tauri-driver", "--port", str(driver_port), "--native-port", str(native_port), "--native-driver", "/usr/bin/WebKitWebDriver"], stdout=log, stderr=log, start_new_session=True)
+reserved = socket.socket()
+reserved.bind(('127.0.0.1', 0))
+driver_port = reserved.getsockname()[1]
+reserved.close()
+# This Linux-only suite uses WebKit's native binary capability directly. Avoid
+# an intermediary HTTP pool whose stale upstream connection can lose input.
+driver = subprocess.Popen(["/usr/bin/WebKitWebDriver", f"--port={driver_port}", "--host=127.0.0.1"], stdout=log, stderr=log, start_new_session=True)
 base = f"http://127.0.0.1:{driver_port}"
 verified_app = False
 session = None
@@ -131,7 +133,7 @@ def start():
     # WebKit resets pooled HTTP connections when the previous application exits.
     # A safe status read establishes readiness before the one-shot session POST.
     wait(lambda: request("GET", "/status").get("ready"), "native driver ready for a new session")
-    response = request("POST", "/session", {"capabilities": {"alwaysMatch": {"tauri:options": {"application": str(binary)}}}})
+    response = request("POST", "/session", {"capabilities": {"alwaysMatch": {"webkitgtk:browserOptions": {"binary": str(binary)}}}})
     session = response["sessionId"]
     request("POST", f"/session/{session}/timeouts", {"script": 30000, "pageLoad": 30000, "implicit": 0})
     wait(lambda: shown('[data-action="credential-settings"]'), "app bootstrap")
