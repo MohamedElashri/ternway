@@ -224,8 +224,6 @@ try:
     native_terminal_review.run(globals())
     import native_terminal_settings_review
     native_terminal_settings_review.run(globals())
-    # The selection fixture clears the screen, so retain its fresh output through theme changes.
-    terminal_theme_marker = "CI_ASK_WRITE_ACCEPT_FINISHED"
     for width, height in [(1000, 700), (1280, 850), (1080, 720), (1400, 900)]:
         request("POST", f"/session/{session}/window/rect", {"width": width, "height": height})
         # Native decorations make the compositor's resize asynchronous. Wait
@@ -277,6 +275,21 @@ try:
     screenshot('settings-pages.png')
     import native_ui_review
     native_ui_review.run(globals())
+
+    # Geometry and zoom checks can reflow earlier output outside the viewport.
+    # Produce this test's output afterward so each theme must preserve visible
+    # real PTY content without relying on another fixture's scroll position.
+    click('.modal-settings [data-action="close-modal"]')
+    terminal_theme_marker = 'CI_THEME_RETENTION'
+    theme_escaped = ''.join('\\%03o' % byte for byte in terminal_theme_marker.encode())
+    theme_command = f"printf '{theme_escaped}\\n'"
+    execute("const el=document.querySelector('.terminal-host:not([hidden]) .ghostty-input');const data=new DataTransfer();data.setData('text/plain',arguments[0]);el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));", theme_command)
+    request('POST', f'/session/{session}/actions', {'actions': [{'type': 'key', 'id': 'theme-fixture-enter', 'actions': [
+        {'type': 'keyDown', 'value': '\ue007'}, {'type': 'keyUp', 'value': '\ue007'}]}]})
+    wait(lambda: read("return [...document.querySelectorAll('.terminal-host:not([hidden]) .ghostty-accessibility')].some(el=>el.textContent.includes(arguments[0]));", terminal_theme_marker), 'fresh native output before theme changes')
+    screenshot('theme-retention-before.png')
+    click('[data-action="credential-settings"]')
+    click('[data-settings-page="appearance"]')
 
     assert sections[-1] == "About", sections
     assert read("return document.querySelector('#app').dataset.colorTheme;") == 'github-dark'
