@@ -134,8 +134,8 @@ def compact_terminal_geometry():
 def start():
     global session, verified_app
     verified_app = False
-    # WebKit resets pooled HTTP connections when the previous application exits.
-    # A safe status read establishes readiness before the one-shot session POST.
+    # WebKit may still be releasing the previous automation session after exit.
+    # Observe native-driver readiness before the one-shot session POST.
     wait(lambda: request("GET", "/status").get("ready"), "native driver ready for a new session")
     response = request("POST", "/session", {"capabilities": {"alwaysMatch": {"webkitgtk:browserOptions": {"binary": str(binary)}}}})
     session = response["sessionId"]
@@ -766,6 +766,7 @@ try:
         pass
     session = None
     (data_dir / "transfers.json").write_text("damaged test queue")
+    native_sidebar_review.seed_restart_layout(globals(), data_dir)
     start()
     check_startup_size()
     wait(lambda:read("return document.querySelector('#app')?.dataset.colorTheme==='github-dark-dimmed';"),'selected theme survives restart and restored webview reattaches')

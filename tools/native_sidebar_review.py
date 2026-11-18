@@ -3,6 +3,7 @@
 Call run(globals()) from native-gui-smoke.py after connecting the SSH fixture, while
 its remote workspace is active. The harness owns the config, window, and terminals.
 """
+import json
 import sys
 
 
@@ -10,6 +11,9 @@ def prepare_restart(g):
     """Use the suite's existing coordinated restart to verify durable preferences."""
     path = g['config'] / 'config'
     original = path.read_text()
+    # The library restore test removes the authenticated fixture profile. Use an
+    # owned surviving profile only as an inert saved-workspace reference.
+    g['sidebar_restart_server_id'] = g['invoke']('get_state')['servers'][0]['id']
     keys = {'sidebar-width', 'sidebar-collapsed', 'tools-sidebar-width', 'tools-sidebar-collapsed'}
     base = '\n'.join(line for line in original.splitlines() if line.partition('=')[0].strip() not in keys) + '\n'
     path.write_text(base + 'sidebar-width = 310\nsidebar-collapsed = true\ntools-sidebar-width = 205\ntools-sidebar-collapsed = true\n')
@@ -19,6 +23,17 @@ def prepare_restart(g):
         path.write_text(original)
         raise
     return original
+
+
+def seed_restart_layout(g, data_dir):
+    """Add an inert remote pane without connecting or starting a process."""
+    path = data_dir / 'session.json'
+    layout = json.loads(path.read_text())
+    workspace, pane = 'qa-sidebar-dormant', 'qa-sidebar-dormant-pane'
+    layout.setdefault('workspaces', []).append({'id': workspace, 'serverId': g['sidebar_restart_server_id'], 'label': 'Sidebar restore QA'})
+    layout['groups'].append({'workspace': workspace, 'title': 'Sidebar restore QA', 'root': {'kind': 'leaf', 'terminalId': pane}, 'focusedId': pane, 'panes': {pane: {'snapshot': 'Dormant sidebar QA; no process started'}}})
+    # Keep the existing active workspace/group and its history-marker assertion.
+    path.write_text(json.dumps(layout))
 
 
 def verify_restart(g):
@@ -78,6 +93,12 @@ def run(g):
     def retained():
         return g['read']("return window.__sidebarReviewMain===document.querySelector('.content-area') && window.__sidebarReviewTerminal===document.querySelector('.terminal-host:not([hidden])');")
 
+    def painted_layout(test, description):
+        g['wait'](test, description)
+        # Native hit testing can lag a DOM grid change. Observe the new geometry,
+        # then let it reach the compositor before delivering the next click.
+        g['request']('POST', f"/session/{g['session']}/execute/async", {'script': "const done=arguments[arguments.length-1];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));", 'args': []}, idempotent=True)
+
     try:
         if g['shown']('.modal'):
             g['click']('[data-action="close-modal"]')
@@ -117,8 +138,12 @@ def run(g):
         assert retained(), 'keyboard resizing replaced terminal DOM'
         g['check']('both native separators resize with pointer and keyboard, commit only on release, and Escape rolls back')
 
-        g['click']('[data-sidebar-toggle="connections"]')
-        g['click']('[data-sidebar-toggle="tools"]')
+        observations = []
+        for side in ['connections', 'tools']:
+            g['click'](f'[data-sidebar-toggle="{side}"]')
+            painted_layout(lambda: compact(side) and width(side) == 48, f'{side} compact geometry reaches the native display')
+            observations.append({'side': side, 'dom': g['read']("return [...document.querySelectorAll('[data-sidebar]')].map(el=>({side:el.dataset.sidebar,compact:el.dataset.compact,width:el.getBoundingClientRect().width}));"), 'config': path.read_text()})
+        (g['artifacts'] / 'sidebar-toggle-observations.json').write_text(json.dumps(observations, indent=2))
         g['wait'](lambda: compact('connections') and compact('tools') and 'sidebar-collapsed = true' in path.read_text() and 'tools-sidebar-collapsed = true' in path.read_text(), 'independent compact choices persist')
         assert width('connections') == 48 and width('tools') == 48
         assert g['shown']('[data-sidebar-compact] [data-action="add-server"]')
@@ -128,10 +153,12 @@ def run(g):
         assert g['read']("return document.querySelector('[data-sidebar-resize=connections]').tabIndex===-1 && document.querySelector('[data-sidebar-toggle=connections]').getAttribute('aria-expanded')==='false';")
         g['screenshot']('sidebar-desktop-compact.png')
         g['click']('[data-sidebar-search]')
-        g['wait'](lambda: not compact('connections') and g['read']("return document.activeElement?.dataset.field==='server-search';"), 'compact search expands and focuses the connection search')
+        painted_layout(lambda: not compact('connections') and g['read']("return document.activeElement?.dataset.field==='server-search';"), 'compact search expands and focuses the connection search')
         assert compact('tools') and retained()
         g['click']('[data-sidebar-toggle="tools"]')
+        painted_layout(lambda: not compact('tools'), 'tools rail expands before resetting widths')
         g['click']('[data-sidebar-reset="connections"]')
+        painted_layout(lambda: width('connections') == 260, 'connection width resets before moving to the tool reset control')
         g['click']('[data-sidebar-reset="tools"]')
         g['wait'](lambda: width('connections') == 260 and width('tools') == 190 and 'sidebar-width = 260' in path.read_text() and 'tools-sidebar-width = 190' in path.read_text(), 'GUI width reset persists defaults')
         assert retained()
@@ -159,6 +186,15 @@ def run(g):
         assert g['read']("return window.__sidebarReviewList===document.querySelector('.server-list') && window.__sidebarReviewRows.length>0 && window.__sidebarReviewRows.every(row=>row===document.querySelector('.server-item[data-server-id=\"'+CSS.escape(row.dataset.serverId)+'\"]'));"), 'unrelated full renders replaced connection rows'
         assert g['read']("return window.__sidebarReviewTerminal===document.querySelector('.terminal-host:not([hidden])');"), 'Settings replaced the active terminal'
         g['check']('Settings open, page navigation and close retain existing connection rows and the active terminal')
+    except Exception:
+        # Capture the live failure before restoring the isolated preferences.
+        try:
+            g['screenshot']('sidebar-failure.png')
+            evidence = {'config': path.read_text(), 'dom': g['read']("return {panels:[...document.querySelectorAll('[data-sidebar]')].map(el=>({side:el.dataset.sidebar,compact:el.dataset.compact,width:el.getBoundingClientRect().width})),text:document.querySelector('.app-toast')?.textContent,error:document.querySelector('.error-banner,.inline-error')?.textContent};")}
+            (g['artifacts'] / 'sidebar-failure.json').write_text(json.dumps(evidence, indent=2))
+        except Exception as capture_error:
+            print(f'Sidebar evidence observation: {capture_error}', file=sys.stderr)
+        raise
     finally:
         # Release partial gestures even on assertion failure. Restore the owned
         # file/window independently, preserving any original test failure.
