@@ -723,6 +723,24 @@ impl Store {
         Ok(())
     }
 
+    /// Read only IDs for background activity checks, without decoding every profile
+    /// or issuing one query per saved connection.
+    pub fn tunnel_ids(&self, server_id: Option<&str>) -> Result<Vec<String>, String> {
+        let connection = self.connection.lock().map_err(|e| e.to_string())?;
+        let (query, parameters) = match server_id {
+            Some(id) => ("SELECT id FROM tunnels WHERE server_id = ?1", vec![id]),
+            None => ("SELECT id FROM tunnels", vec![]),
+        };
+        let mut statement = connection
+            .prepare(query)
+            .map_err(|e| format!("Could not read tunnels: {e}"))?;
+        let rows = statement
+            .query_map(rusqlite::params_from_iter(parameters), |row| row.get(0))
+            .map_err(|e| format!("Could not read tunnels: {e}"))?;
+        rows.map(|row| row.map_err(|e| format!("Could not decode tunnel: {e}")))
+            .collect()
+    }
+
     pub fn list_tunnels(
         &self,
         server_id: &str,
@@ -907,10 +925,7 @@ mod identity_migration_tests {
         }
         let start = std::time::Instant::now();
         for _ in 0..20 {
-            let mut ids = Vec::new();
-            for server in store.list_servers().unwrap() {
-                ids.extend(store.list_tunnels(&server.id).unwrap().into_iter().map(|t| t.id));
-            }
+            let ids = store.tunnel_ids(None).unwrap();
             assert_eq!(ids.len(), 200);
         }
         eprintln!(
@@ -931,6 +946,51 @@ mod identity_migration_tests {
             "backend health: profiles=2000 batch=64 batches_20_us={}",
             start.elapsed().as_micros()
         );
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn background_tunnel_ids_include_only_the_requested_connections() {
+        let dir = std::env::temp_dir().join(format!("ternway-tunnel-ids-{}", Uuid::new_v4()));
+        let store = Store::open(&dir.join("state.sqlite"), &dir.join("vault")).unwrap();
+        let draft: ServerDraft = serde_json::from_value(serde_json::json!({
+            "name":"fixture", "host":"example.test", "username":"qa", "port":22
+        }))
+        .unwrap();
+        let first = store.save_server(&draft).unwrap();
+        let second = store.save_server(&draft).unwrap();
+        let add = |server_id: &str, name: &str| {
+            store
+                .save_tunnel(&crate::models::TunnelInput {
+                    id: None,
+                    server_id: server_id.into(),
+                    name: name.into(),
+                    kind: "local".into(),
+                    bind_host: "127.0.0.1".into(),
+                    bind_port: 1234,
+                    target_host: "example.test".into(),
+                    target_port: 22,
+                })
+                .unwrap()
+                .id
+        };
+        let a = add(&first.id, "a");
+        let b = add(&first.id, "b");
+        let c = add(&second.id, "c");
+        let mut all = store.tunnel_ids(None).unwrap();
+        let mut expected = vec![a.clone(), b.clone(), c.clone()];
+        all.sort();
+        expected.sort();
+        assert_eq!(all, expected);
+        let mut selected = store.tunnel_ids(Some(&first.id)).unwrap();
+        let mut expected = vec![a, b];
+        selected.sort();
+        expected.sort();
+        assert_eq!(selected, expected);
+        assert_eq!(store.tunnel_ids(Some(&second.id)).unwrap(), vec![c]);
+        assert!(store.tunnel_ids(Some("missing")).unwrap().is_empty());
+        assert!(!dir.join("vault").exists());
         drop(store);
         std::fs::remove_dir_all(dir).unwrap();
     }

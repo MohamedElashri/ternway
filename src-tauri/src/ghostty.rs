@@ -154,6 +154,7 @@ struct Engine {
     appearance: Appearance,
     search_query: String,
     search_index: usize,
+    search_matches: Option<Vec<(PointCoordinate, PointCoordinate)>>,
     image_cache: std::collections::HashSet<String>,
     search_ranges: Vec<(PointCoordinate, PointCoordinate)>,
     held_frame: Rc<RefCell<Option<Result<Frame>>>>,
@@ -214,6 +215,7 @@ impl Engine {
             observer: Default::default(),
             search_query: String::new(),
             search_index: 0,
+            search_matches: None,
             image_cache: Default::default(),
             search_ranges: Vec::new(),
             held_frame,
@@ -227,6 +229,8 @@ impl Engine {
         bytes.min(1_000_000_000)
     }
     fn configure(&mut self, a: Appearance) -> Result<()> {
+        // A smaller history limit can evict rows even without new PTY output.
+        self.invalidate_search();
         let get = |key: &str| a.theme.get(key).and_then(Value::as_str).and_then(rgb);
         self.terminal
             .set_default_bg_color(get("background"))
@@ -295,9 +299,22 @@ impl Engine {
         self.appearance = a;
         Ok(())
     }
+    fn resize(
+        &mut self,
+        cols: u16,
+        rows: u16,
+        cell_width: u32,
+        cell_height: u32,
+    ) -> Result<Vec<Value>> {
+        self.invalidate_search();
+        self.terminal
+            .resize(cols, rows, cell_width, cell_height)
+            .map_err(error)?;
+        Ok(self.drain_events(true))
+    }
     fn write(&mut self, bytes: &[u8], live: bool) -> Vec<Value> {
         if !bytes.is_empty() {
-            self.search_ranges.clear();
+            self.invalidate_search();
         }
         let mut effects = Vec::new();
         let mut begin = 0;
@@ -544,48 +561,50 @@ impl Engine {
             self.clear_search()?;
             return Ok(json!({"resultIndex":-1,"resultCount":0}));
         }
-        let expression = if regex {
-            query.to_owned()
-        } else {
-            regex::escape(query)
-        };
-        let pattern = match regex::RegexBuilder::new(&expression)
-            .case_insensitive(!case_sensitive)
-            .size_limit(1024 * 1024)
-            .build()
-        {
-            Ok(pattern) => pattern,
-            Err(reason) => {
-                self.clear_search()?;
-                return Err(error(reason));
-            }
-        };
-        let (text, positions) = match self.search_text() {
-            Ok(text) => text,
-            Err(reason) => {
-                self.clear_search()?;
-                return Err(reason);
-            }
-        };
-        let deadline = Instant::now() + Duration::from_secs(2);
-        let mut matches = Vec::new();
-        for matched in pattern
-            .find_iter(&text)
-            .filter(|m| m.end() > m.start())
-            .take(10000)
-        {
-            if Instant::now() > deadline {
-                self.clear_search()?;
-                return Err("Search pattern is too expensive; narrow the expression".into());
-            }
-            matches.push(matched);
-        }
-        self.search_ranges = matches
-            .iter()
-            .take(2000)
-            .map(|m| (positions[m.start()], positions[m.end() - 1]))
-            .collect();
         let key = format!("{case_sensitive}:{regex}:{query}");
+        if self.search_query != key || self.search_matches.is_none() {
+            let expression = if regex {
+                query.to_owned()
+            } else {
+                regex::escape(query)
+            };
+            let pattern = match regex::RegexBuilder::new(&expression)
+                .case_insensitive(!case_sensitive)
+                .size_limit(1024 * 1024)
+                .build()
+            {
+                Ok(pattern) => pattern,
+                Err(reason) => {
+                    self.clear_search()?;
+                    return Err(error(reason));
+                }
+            };
+            let (text, positions) = match self.search_text() {
+                Ok(text) => text,
+                Err(reason) => {
+                    self.clear_search()?;
+                    return Err(reason);
+                }
+            };
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut matches = Vec::new();
+            for matched in pattern
+                .find_iter(&text)
+                .filter(|m| m.end() > m.start())
+                .take(10000)
+            {
+                if Instant::now() > deadline {
+                    self.clear_search()?;
+                    return Err("Search pattern is too expensive; narrow the expression".into());
+                }
+                matches.push((positions[matched.start()], positions[matched.end() - 1]));
+            }
+            self.search_ranges = matches.iter().take(2000).copied().collect();
+            // Retain only bounded cell coordinates, not the scrollback text or its
+            // byte-to-cell map. Next/Previous can reuse these until content changes.
+            self.search_matches = Some(matches);
+        }
+        let matches = self.search_matches.as_ref().unwrap();
         if matches.is_empty() {
             self.search_query = key;
             self.search_index = 0;
@@ -604,9 +623,7 @@ impl Engine {
             0
         };
         self.search_query = key;
-        let matched = &matches[self.search_index];
-        let start = positions[matched.start()];
-        let end = positions[matched.end() - 1];
+        let (start, end) = matches[self.search_index];
         let selection = Selection::new(
             self.terminal
                 .grid_ref(Point::Screen(start))
@@ -673,10 +690,14 @@ impl Engine {
         }
         Ok((text, positions))
     }
+    fn invalidate_search(&mut self) {
+        self.search_matches = None;
+        self.search_ranges.clear();
+    }
     fn clear_search(&mut self) -> Result<()> {
+        self.invalidate_search();
         self.search_query.clear();
         self.search_index = 0;
-        self.search_ranges.clear();
         self.terminal.set_selection(None).map_err(error)?;
         Ok(())
     }
@@ -1270,11 +1291,7 @@ pub(crate) fn ghostty_action(
                 {
                     return Err("Invalid terminal dimensions".into());
                 }
-                engine
-                    .terminal
-                    .resize(cols, rows, cell_width, cell_height)
-                    .map_err(error)?;
-                effects = engine.drain_events(true);
+                effects = engine.resize(cols, rows, cell_width, cell_height)?;
             }
             Action::Write { text } => {
                 if text.len() > 4 * 1024 * 1024 {
@@ -1793,7 +1810,7 @@ mod tests {
     fn backend_perf_native_dirty_frames() {
         for delta in [false, true] {
             let mut engine = engine(120);
-            engine.terminal.resize(120, 40, 9, 20).unwrap();
+            engine.resize(120, 40, 9, 20).unwrap();
             engine.write(&b"synthetic build output 0123456789\r\n".repeat(40), true);
             engine.frame(0, vec![], false).unwrap();
             let start = Instant::now();
@@ -1807,6 +1824,68 @@ mod tests {
             }
             eprintln!("backend native frames: delta={delta} frames=200 elapsed_us={} serialized_bytes={bytes} changed_rows={changed_rows}", start.elapsed().as_micros());
         }
+    }
+
+    #[test]
+    fn search_navigation_tracks_options_and_content_changes() {
+        let mut engine = engine(80);
+        engine.write("needle NEEDLE 界needle".as_bytes(), true);
+        let find = |engine: &mut Engine, query, case, regex, backwards| {
+            let result = engine.find(query, case, regex, backwards).unwrap();
+            (
+                result["resultIndex"].as_i64().unwrap(),
+                result["resultCount"].as_i64().unwrap(),
+            )
+        };
+        assert_eq!(find(&mut engine, "needle", false, false, false), (0, 3));
+        assert_eq!(find(&mut engine, "needle", false, false, false), (1, 3));
+        assert_eq!(find(&mut engine, "needle", false, false, true), (0, 3));
+        assert_eq!(find(&mut engine, "needle", true, false, true), (1, 2));
+        assert_eq!(find(&mut engine, "N[A-Z]+", true, true, false), (0, 1));
+        assert_eq!(find(&mut engine, "missing", false, false, false), (-1, 0));
+        engine.write(b" missing", true);
+        assert_eq!(find(&mut engine, "missing", false, false, false), (0, 1));
+        engine.write(b"\x1b[?1049h", true);
+        assert_eq!(find(&mut engine, "missing", false, false, false), (-1, 0));
+        engine.write(b"\x1b[?1049l", true);
+        assert_eq!(find(&mut engine, "missing", false, false, false), (0, 1));
+        engine.find("", false, false, false).unwrap();
+        assert_eq!(find(&mut engine, "needle", false, false, false), (0, 3));
+    }
+
+    #[test]
+    fn search_coordinates_refresh_after_reflow_and_history_eviction() {
+        let mut engine = engine(80);
+        engine.write(b"prefix needle: 01234567890123456789 needle", true);
+        assert_eq!(
+            engine.find("needle", false, false, false).unwrap()["resultCount"],
+            2
+        );
+        engine.resize(20, 5, 9, 20).unwrap();
+        let rebuilt = engine.find("needle", false, false, false).unwrap();
+        assert_eq!(rebuilt["resultCount"], 2);
+        assert_eq!(
+            &*engine
+                .terminal
+                .format_selection_alloc(FormatOptions::new().with_unwrap(true))
+                .unwrap()
+                .unwrap(),
+            b"needle"
+        );
+        engine.write(b"\r\nnew needle\r\n", true);
+        assert_eq!(
+            engine.find("needle", false, false, false).unwrap()["resultCount"],
+            3
+        );
+        let mut appearance = engine.appearance.clone();
+        appearance.scrollback = 0;
+        engine.configure(appearance).unwrap();
+        // Native history eviction is lazy; exercise enough output to evict the old rows.
+        engine.write(&b"replacement\r\n".repeat(100), true);
+        assert_eq!(
+            engine.find("needle", false, false, false).unwrap()["resultCount"],
+            0
+        );
     }
 
     #[test]

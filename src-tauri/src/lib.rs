@@ -1281,8 +1281,7 @@ fn cancel_operation(operation_id: String) -> Result<(), AppError> {
 
 #[tauri::command(async)]
 fn background_activity(state: State<'_, AppState>, queue: State<'_, transfer_queue::TransferQueue>, server_id: Option<String>) -> Result<serde_json::Value, AppError> {
-    let ids = state.store.list_servers()?.into_iter().filter(|p|server_id.as_ref().is_none_or(|id|p.id==*id)).map(|p|p.id).collect::<Vec<_>>();
-    let mut tunnel_ids=Vec::new(); for id in ids { tunnel_ids.extend(state.store.list_tunnels(&id)?.into_iter().map(|t|t.id)); }
+    let tunnel_ids = state.store.tunnel_ids(server_id.as_deref())?;
     let tunnels=tunnels::statuses(&tunnel_ids).into_iter().filter(|t|t.running).count();
     Ok(serde_json::json!({"tunnels":tunnels,"transfers":queue.pending_count(server_id.as_deref())}))
 }
