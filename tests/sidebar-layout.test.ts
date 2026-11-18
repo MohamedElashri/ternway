@@ -14,7 +14,8 @@ function fixture(persist?: (key: string, value: string) => Promise<void>) {
   const frames = new Map<number, FrameRequestCallback>(), operations: string[] = [];
   dom.window.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
   dom.window.cancelAnimationFrame = id => { frames.delete(id); };
-  Object.defineProperty(root.querySelector('.app-shell'), 'clientWidth', { get: () => { operations.push('read'); return viewport; } });
+  Object.defineProperty(dom.window, 'innerWidth', { get: () => { operations.push('read'); return viewport; } });
+  Object.defineProperty(root.querySelector('.app-shell'), 'clientWidth', { get: () => { throw Error('sidebar sync must not flush element layout'); } });
   const style = root.querySelector<HTMLElement>('.app-shell')!.style, setProperty = style.setProperty.bind(style);
   style.setProperty = (key, value, priority) => { operations.push('write'); setProperty(key, value, priority); };
   root.setPointerCapture = id => { capture = id; }; root.hasPointerCapture = id => capture === id; root.releasePointerCapture = () => { capture = undefined; };
@@ -144,14 +145,14 @@ test('pointer moves coalesce into one animation frame with all geometry reads be
   for (const x of [270, 290, 320]) f.pointer('pointermove', f.root, x);
   assert.equal(f.frames.size, 1); assert.deepEqual(f.operations, [], 'pointer movement performs no immediate layout reads or writes');
   f.flush();
-  assert.deepEqual(f.operations, ['read', 'write', 'write'], 'one viewport snapshot precedes every track write');
+  assert.deepEqual(f.operations, ['read', 'write'], 'one viewport snapshot precedes every track write');
   assert.equal(f.handle().getAttribute('aria-valuenow'), '320');
   f.operations.length = 0;
   f.pointer('pointermove', f.root, 350); assert.equal(f.frames.size, 1);
   f.pointer('pointerup', f.root, 350);
   assert.equal(f.frames.size, 0); assert.equal(f.handle().getAttribute('aria-valuenow'), '350');
   assert.deepEqual(f.writes, [['sidebar-width', '350']]);
-  assert.deepEqual(f.operations, ['read', 'write', 'write']); f.dom.window.close();
+  assert.deepEqual(f.operations, ['read', 'write']); f.dom.window.close();
 });
 
 test('320px CSS viewport explains unavailable expansion/search, avoids hidden focus, and recovers when widened', () => {
@@ -168,4 +169,14 @@ test('320px CSS viewport explains unavailable expansion/search, avoids hidden fo
   assert.equal(toggle.getAttribute('aria-disabled'), 'false'); assert.equal(search.getAttribute('aria-disabled'), 'false');
   f.layout.search(); assert.equal(f.dom.window.document.activeElement, f.root.querySelector('[data-field="server-search"]'));
   f.dom.window.close();
+});
+
+
+test('unchanged layout sync avoids all retained-subtree mutations and uses only viewport geometry', () => {
+  const f = fixture(), observer = new f.dom.window.MutationObserver(() => {});
+  observer.observe(f.root, { subtree: true, attributes: true, characterData: true, childList: true });
+  f.operations.length = 0; f.layout.sync(); f.layout.sync();
+  assert.deepEqual(f.operations, ['read', 'read']);
+  assert.equal(observer.takeRecords().length, 0, 'unchanged preferences must not invalidate retained library ancestors or replace toggle text');
+  observer.disconnect(); f.dom.window.close();
 });

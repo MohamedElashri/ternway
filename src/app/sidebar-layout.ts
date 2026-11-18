@@ -112,9 +112,9 @@ export class SidebarLayout {
     }
     this.sync();
   }
-  /** Take the only geometry measurement before changing any style or DOM attribute. */
+  /** The shell fills the viewport; innerWidth remains in CSS pixels at native UI zoom. */
   private measure(): LayoutMetrics {
-    const viewport = this.root.querySelector<HTMLElement>(".app-shell")?.clientWidth || this.root.clientWidth || this.root.ownerDocument.defaultView!.innerWidth;
+    const viewport = this.root.ownerDocument.defaultView!.innerWidth;
     const tools = Boolean(this.root.querySelector(".sidebar"));
     const widths = sidebarWidths(this.preferences, viewport, tools);
     const maxima = {} as Record<SidebarId, number>, expandable = {} as Record<SidebarId, boolean>;
@@ -138,39 +138,44 @@ export class SidebarLayout {
     const shell = this.root.querySelector<HTMLElement>(".app-shell");
     if (!shell) return;
     const { widths, maxima, expandable } = this.measure();
-    shell.style.setProperty("--connections-width", `${widths.connections}px`);
-    shell.style.setProperty("--tools-width", `${widths.tools}px`);
+    // Identical ancestor attributes/custom properties can invalidate the retained library.
+    const attribute = (element: Element, name: string, value: string): void => { if (element.getAttribute(name) !== value) element.setAttribute(name, value); };
+    const text = (element: Element, value: string): void => { if (element.textContent !== value) element.textContent = value; };
+    for (const id of ids) {
+      const property = id === "connections" ? "--connections-width" : "--tools-width", value = `${widths[id]}px`;
+      if (shell.style.getPropertyValue(property) !== value) shell.style.setProperty(property, value);
+    }
     for (const id of ids) {
       const panel = shell.querySelector<HTMLElement>(`[data-sidebar="${id}"]`);
       if (!panel) continue;
       const compact = widths[id] === COMPACT_SIDEBAR_WIDTH;
       const active = this.root.ownerDocument.activeElement;
       const toggle = panel.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")!;
-      panel.dataset.compact = String(compact);
-      panel.querySelectorAll<HTMLElement>("[data-sidebar-expanded]").forEach(el => { el.hidden = compact; });
-      panel.querySelectorAll<HTMLElement>("[data-sidebar-compact]").forEach(el => { el.hidden = !compact; });
+      attribute(panel, "data-compact", String(compact));
+      panel.querySelectorAll<HTMLElement>("[data-sidebar-expanded]").forEach(el => { if (el.hidden !== compact) el.hidden = compact; });
+      panel.querySelectorAll<HTMLElement>("[data-sidebar-compact]").forEach(el => { if (el.hidden !== !compact) el.hidden = !compact; });
       const label = id === "connections" ? "connections" : "connection tools";
-      toggle.setAttribute("aria-expanded", String(!compact));
-      toggle.setAttribute("aria-label", `${compact ? "Expand" : "Collapse"} ${label}`);
-      toggle.title = compact && !expandable[id] ? constrainedReason(id) : `${compact ? "Expand" : "Collapse"} ${label}`;
-      toggle.setAttribute("aria-disabled", String(compact && !expandable[id]));
-      toggle.setAttribute("aria-describedby", `${id}-sidebar-constraint`);
+      attribute(toggle, "aria-expanded", String(!compact));
+      attribute(toggle, "aria-label", `${compact ? "Expand" : "Collapse"} ${label}`);
+      attribute(toggle, "title", compact && !expandable[id] ? constrainedReason(id) : `${compact ? "Expand" : "Collapse"} ${label}`);
+      attribute(toggle, "aria-disabled", String(compact && !expandable[id]));
+      attribute(toggle, "aria-describedby", `${id}-sidebar-constraint`);
       const reason = panel.querySelector<HTMLElement>(".sidebar-layout-constraint")!;
-      reason.textContent = compact && !expandable[id] ? constrainedReason(id) : "";
+      text(reason, compact && !expandable[id] ? constrainedReason(id) : "");
       const search = panel.querySelector<HTMLElement>("[data-sidebar-search]");
       if (search) {
-        search.setAttribute("aria-disabled", String(!expandable[id]));
-        search.setAttribute("aria-describedby", `${id}-sidebar-constraint`);
-        search.title = expandable[id] ? "Search connections" : constrainedReason(id);
+        attribute(search, "aria-disabled", String(!expandable[id]));
+        attribute(search, "aria-describedby", `${id}-sidebar-constraint`);
+        attribute(search, "title", expandable[id] ? "Search connections" : constrainedReason(id));
       }
-      toggle.querySelector("span")!.textContent = compact ? "›" : "‹";
+      text(toggle.querySelector("span")!, compact ? "›" : "‹");
       const handle = panel.querySelector<HTMLElement>("[data-sidebar-resize]")!;
-      handle.tabIndex = compact ? -1 : 0;
-      handle.hidden = compact;
-      handle.setAttribute("aria-valuemin", String(SIDEBAR_LIMITS[id].min));
-      handle.setAttribute("aria-valuemax", String(maxima[id]));
-      handle.setAttribute("aria-valuenow", String(widths[id]));
-      handle.setAttribute("aria-valuetext", `${widths[id]} pixels`);
+      if (handle.tabIndex !== (compact ? -1 : 0)) handle.tabIndex = compact ? -1 : 0;
+      if (handle.hidden !== compact) handle.hidden = compact;
+      attribute(handle, "aria-valuemin", String(SIDEBAR_LIMITS[id].min));
+      attribute(handle, "aria-valuemax", String(maxima[id]));
+      attribute(handle, "aria-valuenow", String(widths[id]));
+      attribute(handle, "aria-valuetext", `${widths[id]} pixels`);
       if (active && panel.contains(active) && (active.closest("[hidden]") || (compact && active.closest("[data-sidebar-reset]")))) toggle.focus({ preventScroll: true });
     }
   }
