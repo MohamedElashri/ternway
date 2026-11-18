@@ -1,4 +1,6 @@
-import { installConnectionSidebar } from "./app/connection-sidebar";
+import { installSidebarLayout, searchConnections } from "./app/sidebar-layout";
+import { refreshConfigEditor } from "./app/config-editor";
+import { installConnectionSidebar, refreshConnectionLibrary } from "./app/connection-sidebar";
 import { installTabNavigation } from "./app/tab-view";
 import { watchColorTheme } from "./app/appearance";
 import { freezeShutdown, releaseShutdown, shutdownFrozen } from "./app/shutdown-freeze";
@@ -7,9 +9,10 @@ import { flushRemoteEdits } from "./app/terminal";
 import { installCredentialPrivacy } from "./app/credential-privacy";
 import { installWindowEvents } from "./app/window-events";
 import { confirmTerminalClose } from "./app/terminal-close";
-import { cancelCurrentOperation } from "./app/session";
+import { cancelCurrentOperation, setError } from "./app/session";
 import { watchSharedSsh } from "./app/shared-ssh";
 import { rememberGroup } from "./app/connection-groups";
+import { connectionFolderToggled } from "./app/connection-list";
 import { closeCustomSelects } from "./app/select-controls";
 import { containModalFocus, handleModalKeydown } from "./app/modal-state";
 import { invoke } from "@tauri-apps/api/core";
@@ -23,11 +26,11 @@ import { appendLogOutput } from "./app/actions/logs";
 import { transferUpload } from "./app/actions/remote";
 import { errorText } from "./app/command-client";
 import { handleChange, handleClick, renameWorkspaceTab, handleInput, handleKeydown, handleSubmit, runAction, workspaceTabDrag } from "./app/events";
-import { render } from "./app/render";
+import { render, renderConnectionSidebar } from "./app/render";
 import { composingText, matchKeybinding } from "./app/keybindings";
 import { appWindow, DEFAULT_INTERFACE_SCALE, quickMode, root, state } from "./app/state";
 import { togglePalette } from "./app/palette";
-import { loadTerminalConfig } from "./app/terminal-config";
+import { loadTerminalConfig, persistWorkspaceSetting } from "./app/terminal-config";
 import { installTabStripHandlers } from "./app/terminal-tabs";
 import { closeTerminalGroup, dropOnPane, installDockDivider, moveTab, paneAt, renameTab, restoreSession, runTerminalAction, type SavedSession } from "./app/terminal";
 import { dismissTransferToast, setInterfaceScale, showToast, stepInterfaceScale, syncTransferToast } from "./app/toasts";
@@ -36,6 +39,7 @@ import { saveSession, sessionSavingEnabled } from "./app/session-save";
 import { confirm } from "./app/modals";
 import "./styles.css";
 import "./sidebar.css";
+import "./sidebar-layout.css";
 import "./tabs.css";
 import "./buttons.css";
 import type { CredentialStatus, TerminalEvent, TransferProgress } from "./types";
@@ -69,7 +73,7 @@ async function installEventListeners(): Promise<void> {
     about: () => { void runAction("show-about"); },
     updates: () => { void runAction("check-updates"); },
   }, listen));
-  state.terminalUnlisteners.push(await listen("library-changed", () => { void refreshSnapshot(false).then(() => { if (!state.modal && !state.appDialogPrompt) render(); }); }));
+  state.terminalUnlisteners.push(await listen("library-changed", () => { void refreshConnectionLibrary().catch(setError); }));
   state.terminalUnlisteners.push(await listen("transfer-queue-changed", () => { void refreshTransferQueue(); }));
   state.terminalUnlisteners.push(await listen<{token: string; message: string}>("shutdown-aborted", event => { releaseShutdown(event.payload.token); showToast(event.payload.message, "info"); }));
   // Quit can be requested before this webview has installed its event listener.
@@ -87,7 +91,7 @@ async function installEventListeners(): Promise<void> {
     viewer.status = "stopped";
     render();
   }));
-  state.terminalUnlisteners.push(await listen("config-changed", () => { void loadTerminalConfig(true); }));
+  state.terminalUnlisteners.push(await listen("config-changed", () => { void loadTerminalConfig().then(refreshConfigEditor); }));
   state.terminalUnlisteners.push(await listen<{ id: string; remotePath: string; status: string; message?: string }>("remote-edit", (event) => {
     const { id, remotePath, status, message } = event.payload;
     const name = remotePath.split("/").pop() || remotePath;
@@ -115,6 +119,7 @@ async function installEventListeners(): Promise<void> {
   }));
 }
 
+if (!quickMode) installSidebarLayout(root, { persist: persistWorkspaceSetting, error: setError, notice: message => showToast(message, "info") });
 installConnectionSidebar(root);
 installTabNavigation(root, "workspace", { select: selectWorkspaceTab, close: closeWorkspaceTab, rename: renameWorkspaceTab });
 installTabNavigation(root, "terminal", { select: id => { const group = state.terminalGroups.find(group => group.id === id); if (group) { state.activeTerminalTabId = group.focusedId; render(); } }, close: closeTerminalGroup, rename: renameTab });
@@ -123,7 +128,9 @@ installDockDivider();
 root.addEventListener("click", (event) => { void handleClick(event); });
 root.addEventListener("toggle", (event) => {
   const details = event.target as HTMLDetailsElement;
-  if (details.dataset.connectionGroup && !state.serverQuery) rememberGroup(details.dataset.connectionGroup, details.open);
+  if (!connectionFolderToggled(details) || state.serverQuery.trim()) return;
+  rememberGroup(details.dataset.connectionGroup!, details.open);
+  renderConnectionSidebar();
 }, true);
 root.addEventListener("input", handleInput);
 root.addEventListener("change", handleChange);
@@ -199,7 +206,7 @@ window.addEventListener("keydown", (event) => {
   }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
-    root.querySelector<HTMLInputElement>('[data-field="server-search"]')?.focus();
+    searchConnections(root);
   }
 }, { capture: true });
 

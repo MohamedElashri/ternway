@@ -1,18 +1,23 @@
-import { namedTheme, themePreset, type ThemePreset } from "./theme-presets";
+import { configureSidebarLayout } from "./sidebar-layout";
+import { applyThemeTokens, namedTheme, themePreset, rememberTheme, type ThemePreset } from "./theme-presets";
 import { invoke } from "@tauri-apps/api/core";
 import { errorText } from "./command-client";
 import { fontSizePx, hostMatches, keybindLines, parseColors, parseConfig, themeName, terminalTheme, type ColorConfig, type ConfigEntry, type TerminalConfig } from "./config";
 import { LINUX_DEFAULTS, MACOS_DEFAULTS, parseKeybindings, quickTerminalShortcut } from "./keybindings";
-import { platform, quickMode, state, type ResolvedProfile } from "./state";
+import { platform, quickMode, root, state, type ResolvedProfile } from "./state";
 import { applyTerminalAppearance } from "./terminal";
 import type { TerminalAppearance } from "./terminal-surface";
-import { showToast } from "./toasts";
+import { setInterfaceScale, waitForInterfaceScaleChanges, showToast } from "./toasts";
+import { applyWindowConfig } from "./window-config";
+import { configureAutomaticUpdates } from "./updater";
 
 interface LoadedConfig {
   path: string;
+  revision: string;
+  includes: string[];
   entries: ConfigEntry[];
   errors: string[];
-  profiles: { name: string; entries: ConfigEntry[] }[];
+  profiles: { name: string; revision: string; includes: string[]; entries: ConfigEntry[] }[];
 }
 
 // Ghostty's default font is JetBrains Mono (bundled); configured families come first.
@@ -39,6 +44,10 @@ export function terminalAppearance(profile?: string): TerminalAppearance {
     cursorBlink: config.cursorBlink ?? true,
     macOptionIsMeta: config.macosOptionAsAlt,
     scrollback: config.scrollbackLimit,
+    imageStorageMb: config.imageStorageLimit / 1_000_000,
+    adjustUnderlinePosition: config.adjustUnderlinePosition,
+    clickRepeatInterval: config.clickRepeatInterval,
+    resizeOverlay: config.resizeOverlay,
   };
 }
 
@@ -66,13 +75,30 @@ async function resolveTheme(config: TerminalConfig, errors: string[], preset: Th
 }
 
 let configLoadVersion = 0;
+let latestConfigLoad: Promise<void> = Promise.resolve();
+
+/** Callers that save a profile must observe the newest in-flight watcher reload too. */
+export async function loadTerminalConfig(announce = false): Promise<void> {
+  const loading = readTerminalConfig(announce);
+  latestConfigLoad = loading;
+  await loading;
+  let observed = loading;
+  while (observed !== latestConfigLoad) {
+    observed = latestConfigLoad;
+    await observed;
+  }
+}
 
 /** Reads ~/.config/ternway/config, its includes and profiles, and applies them to open terminals. */
-export async function loadTerminalConfig(announce = false): Promise<void> {
+async function readTerminalConfig(announce = false): Promise<void> {
   const version = ++configLoadVersion;
-  const preset = themePreset(state.themeId);
   let loaded: LoadedConfig;
   try {
+    // Watcher notifications can arrive between two queued GUI preference writes.
+    // Apply only their final saved value, preserving the optimistic current choice.
+    let pending: Promise<void>;
+    do { pending = preferenceWrites; await pending; } while (pending !== preferenceWrites);
+    if (version !== configLoadVersion) return;
     loaded = await invoke<LoadedConfig>("load_config");
   } catch (error) {
     if (version !== configLoadVersion) return;
@@ -80,7 +106,24 @@ export async function loadTerminalConfig(announce = false): Promise<void> {
     if (announce) showToast(`Could not read the config: ${errorText(error)}`, "info");
     return;
   }
+  if (version !== configLoadVersion) return;
   const { config, ignored, errors } = parseConfig(loaded.entries);
+  if (config.appTheme) {
+    const selected = themePreset(config.appTheme);
+    state.themeId = selected.id;
+    state.darkMode = selected.mode === "dark";
+    rememberTheme(localStorage, selected);
+    applyThemeTokens(document.documentElement, selected);
+    root.dataset.theme = selected.mode;
+    root.dataset.colorTheme = selected.id;
+  }
+  const preset = themePreset(state.themeId);
+  if (config.interfaceScale !== null) {
+    await waitForInterfaceScaleChanges();
+    if (version !== configLoadVersion) return;
+    if (config.interfaceScale !== state.interfaceScale) await setInterfaceScale(config.interfaceScale, false, false);
+  }
+  if (version !== configLoadVersion) return;
   const base = await resolveTheme(config, errors, preset);
   const profiles = new Map<string, ResolvedProfile>();
   for (const profile of loaded.profiles) {
@@ -91,7 +134,8 @@ export async function loadTerminalConfig(announce = false): Promise<void> {
     profiles.set(profile.name, await resolveTheme(parseConfig([...loaded.entries, ...profile.entries]).config, errors, preset));
   }
   if (version !== configLoadVersion) return;
-  state.terminalConfig = { path: loaded.path, ...base, profiles, ignored, errors: [...loaded.errors, ...errors] };
+  state.terminalConfig = { path: loaded.path, revision: loaded.revision, includes: loaded.includes, sources: new Map(loaded.profiles.map(profile => [profile.name, { revision: profile.revision, includes: profile.includes }])), ...base, profiles, ignored, errors: [...loaded.errors, ...errors] };
+  if (!quickMode) configureSidebarLayout(root, config);
   state.keybindings = parseKeybindings(keybindLines(platform === "macos" ? MACOS_DEFAULTS : LINUX_DEFAULTS, config.keybinds));
   if (!quickMode) {
     // The main window owns the quick terminal's settings and global hotkey.
@@ -104,8 +148,26 @@ export async function loadTerminalConfig(announce = false): Promise<void> {
   }
   if (version !== configLoadVersion) return;
   applyTerminalAppearance();
+  if (!quickMode) {
+    const appearance = terminalAppearance();
+    await applyWindowConfig(config, appearance.fontSize, appearance.fontFamily, state.darkMode).catch(error => state.terminalConfig.errors.push(errorText(error)));
+    if (version !== configLoadVersion) return;
+    configureAutomaticUpdates(config);
+  }
   if (announce) {
     const problems = state.terminalConfig.errors.length;
     showToast(problems ? `Config reloaded with ${problems} problem${problems === 1 ? "" : "s"}; see Settings.` : "Config reloaded.", "info");
   }
+}
+
+// Serialize small GUI preference writes across theme/scale controls and windows.
+let preferenceWrites: Promise<void> = Promise.resolve();
+export async function persistWorkspaceSetting(key: string, value: string): Promise<void> {
+  configLoadVersion++;
+  const write = preferenceWrites.then(async () => {
+    const loaded = await invoke<LoadedConfig>("load_config");
+    await invoke("save_config_settings", { profile: null, expectedRevision: loaded.revision, updates: [{ key, values: [value] }] });
+  });
+  preferenceWrites = write.catch(() => undefined);
+  await write;
 }

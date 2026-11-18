@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0 - 2026-11-18
+
+- Add GUI controls for terminal settings, profiles and includes, with config-file persistence and protection against external edit conflicts.
+- Support the 14 previously ignored terminal preferences for windows, clipboard access, selection timing, underline position and automatic updates.
+- Import a whole SSH config or choose hosts, with file browsing, search, duplicate previews, progress and retry.
+- Make connection dragging and folder edits responsive without rebuilding terminals or rescanning SSH files for every move.
+- Preserve rapid organization changes, handle cancelled drags and validate folder subtree changes atomically.
+- Collapse and resize the connection and tools sidebars independently, with saved widths, keyboard controls and compact layouts.
+- Reuse connection rows during search, load closed folders on demand and preserve the library across view changes.
+- Repaint changed terminal rows, preserve accessibility rows and index search highlights before drawing.
+- Reuse unchanged native terminal search results and avoid loading every connection for background tunnel checks.
+- Batch database schema setup to reduce startup disk synchronization while preserving transactional migration and backup recovery.
+- Keep terminal clipboard requests ordered and bound to the originating session, with access denied by default.
+
 ## 0.4.1 - 2026-11-17
 
 - Restore native Linux window controls and edge resizing, with a single title bar.

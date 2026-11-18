@@ -185,3 +185,17 @@ This launches the real OpenSSH client through the application's PTY backend, wit
 keys and isolated host trust. It never reads user SSH config or uses a real account. Both
 macOS and Linux CI run it after the managed password authentication fixture. Checks run on
 pull requests and main-branch pushes, avoiding duplicate builds for each PR commit.
+
+## Sidebar layout checks
+
+`src/app/sidebar-layout.ts` updates sidebar grid tracks and accessibility state without
+replacing the workspace DOM. Width gestures persist only on release, and pending writes
+and active gestures take priority over config watcher reloads. The main config parser and
+Settings controls share the same bounds; profile forms disable these workspace preferences.
+
+`tests/sidebar-layout.test.ts` covers independent collapse, DOM/scroll retention, resize
+commit/cancel paths, config races, persistence failures and narrow viewport bounds. For native
+WebKit coverage, call `native_sidebar_review.run(globals())` from the isolated GUI harness
+once its SSH fixture is connected and the remote workspace is active. The helper uses real
+WebDriver pointer/keyboard events, checks config writes and 640px geometry, and restores the
+harness configuration and window size afterward.

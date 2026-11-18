@@ -6,7 +6,7 @@
 
 use notify::event::ModifyKind;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -61,6 +61,8 @@ pub struct ConfigEntry {
 #[serde(rename_all = "camelCase")]
 pub struct LoadedConfig {
     pub path: String,
+    pub revision: String,
+    pub includes: Vec<String>,
     pub entries: Vec<ConfigEntry>,
     pub errors: Vec<String>,
     /// Files in `profiles/`; each is layered on top of the main config.
@@ -71,7 +73,20 @@ pub struct LoadedConfig {
 #[serde(rename_all = "camelCase")]
 pub struct ProfileConfig {
     pub name: String,
+    pub revision: String,
+    pub includes: Vec<String>,
     pub entries: Vec<ConfigEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigUpdate {
+    pub key: String,
+    pub values: Vec<String>,
+}
+fn includes(path: &Path) -> Vec<String> {
+    fs::read_to_string(path).unwrap_or_default().lines().filter_map(parse_line)
+        .filter_map(|(key, value)| (key == "config-file").then_some(value)).collect()
 }
 
 /// Keeps the file watcher alive; replaced on every load because includes can change.
@@ -100,7 +115,7 @@ fn expand_home(value: &str) -> PathBuf {
 }
 
 /// Splits a `key = value` line. Comments and blank lines give `None`.
-fn parse_line(line: &str) -> Option<(String, String)> {
+pub(crate) fn parse_line(line: &str) -> Option<(String, String)> {
     let line = line.trim();
     if line.is_empty() || line.starts_with('#') {
         return None;
@@ -191,6 +206,8 @@ pub fn load(app: &AppHandle, watcher: &ConfigWatcher) -> Result<LoadedConfig, St
     }
     let mut loaded = LoadedConfig {
         path: path.display().to_string(),
+        revision: crate::config_edit::revision(&fs::read_to_string(&path).unwrap_or_default()),
+        includes: includes(&path),
         entries: Vec::new(),
         errors: Vec::new(),
         profiles: Vec::new(),
@@ -228,6 +245,8 @@ fn read_profiles(
         .map(|path| {
             let mut profile = LoadedConfig {
                 path: path.display().to_string(),
+                revision: crate::config_edit::revision(&fs::read_to_string(&path).unwrap_or_default()),
+                includes: includes(&path),
                 entries: Vec::new(),
                 errors: Vec::new(),
                 profiles: Vec::new(),
@@ -240,6 +259,8 @@ fn read_profiles(
                     .unwrap_or_default()
                     .to_string_lossy()
                     .into_owned(),
+                revision: profile.revision,
+                includes: profile.includes,
                 entries: profile.entries,
             }
         })
@@ -318,7 +339,7 @@ fn watch(
                 );
                 // Any file in profiles/ counts, so new profiles are picked up.
                 let relevant = event.paths.iter().any(|path| {
-                    watched.contains(path) || path.parent() == Some(profiles.as_path())
+                    watched.contains(path) || path == &profiles || path.parent() == Some(profiles.as_path())
                 });
                 if changed && relevant {
                     let _ = sender.send(());
@@ -382,6 +403,8 @@ mod tests {
         fs::write(dir.join("extra"), "theme = Dracula\n").unwrap();
         let mut loaded = LoadedConfig {
             path: String::new(),
+            revision: String::new(),
+            includes: Vec::new(),
             entries: Vec::new(),
             errors: Vec::new(),
             profiles: Vec::new(),

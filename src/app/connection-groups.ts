@@ -10,3 +10,25 @@ export function rememberGroup(key: string, open: boolean): void {
   else collapsedGroups.add(key);
   try { localStorage.setItem("collapsed-connection-groups", JSON.stringify([...collapsedGroups])); } catch { /* optional */ }
 }
+
+/** Reveal a moved connection or newly created subfolder, including collapsed ancestors. */
+export function revealConnectionFolder(path: string): void {
+  if (!path) collapsedGroups.delete("ungrouped");
+  let current = "";
+  for (const part of path.split("/").filter(Boolean)) {
+    current = current ? `${current}/${part}` : part;
+    collapsedGroups.delete(`folder:${current.toLowerCase()}`);
+  }
+  try { localStorage.setItem("collapsed-connection-groups", JSON.stringify([...collapsedGroups])); } catch { /* optional */ }
+}
+
+export function remapCollapsedFolders(source: string, destination: string | null): void {
+  if (!source) return; // The permanent folder keeps its identity when renamed.
+  const prefix = `folder:${source.toLowerCase()}`;
+  for (const key of [...collapsedGroups]) {
+    if (key !== prefix && !key.startsWith(`${prefix}/`)) continue;
+    collapsedGroups.delete(key);
+    if (destination !== null) collapsedGroups.add(`folder:${destination.toLowerCase()}${key.slice(prefix.length)}`);
+  }
+  try { localStorage.setItem("collapsed-connection-groups", JSON.stringify([...collapsedGroups])); } catch { /* optional */ }
+}

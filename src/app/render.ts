@@ -1,7 +1,8 @@
+import { applySidebarLayout, sidebarControls, sidebarSeparator } from "./sidebar-layout";
 import { renderWorkspaceTab } from "./tab-view";
 import { renderUpdateNotice } from "./update-view";
 import { updates } from "./updater";
-import { orderedConnections } from "./connection-order";
+import { ConnectionList, ConnectionSearch } from "./connection-list";
 import { folderPath, renderConnectionFolders } from "./connection-folders";
 import { settingsFocusKey, restoreSettingsFocus } from "./settings-pages";
 
@@ -28,6 +29,7 @@ import { groupExited, paneCount, renderDashboard, renderTabStrip, renderFiles, r
 import { scrollCommandResultsIntoView, scrollContainerLogsIntoView, viewTransitionIsCurrent } from "./workspace";
 
 let tabSizeObserver: ResizeObserver | undefined;
+let retainRail = false;
 function revealActiveTabs(): void {
   root.querySelectorAll<HTMLElement>(".workspace-tabs .workspace-tab.active, .terminal-tab-list .term-tab.active").forEach(tab => tab.scrollIntoView({ block: "nearest", inline: "nearest" }));
 }
@@ -35,6 +37,7 @@ function revealActiveTabs(): void {
 export function render(): void {
   tabSizeObserver?.disconnect();
   const previousFocus = document.activeElement;
+  const previousRail = !quickMode && !state.loading ? root.querySelector<HTMLElement>(".server-rail") : null;
   const settingsFocus = settingsFocusKey(previousFocus);
   const previousConnectionForm = root.querySelector<HTMLFormElement>('form[data-form="server"]');
   const previousImportForm = root.querySelector<HTMLFormElement>('form[data-form="ssh-import"]');
@@ -52,7 +55,25 @@ export function render(): void {
   root.dataset.theme = state.darkMode ? "dark" : "light";
   root.dataset.colorTheme = state.themeId;
   root.dataset.platform = platform;
+  retainRail = Boolean(previousRail);
   root.innerHTML = quickMode ? renderQuickShell() : `${renderTitlebar()}${state.loading ? renderLoading() : renderShell()}`;
+  retainRail = false;
+  const railSlot = root.querySelector("[data-retained-rail]");
+  if (previousRail && railSlot) {
+    railSlot.replaceWith(previousRail);
+    const search = previousRail.querySelector<HTMLInputElement>('[data-field="server-search"]');
+    if (search && search.value !== state.serverQuery) search.value = state.serverQuery;
+    const themeButton = previousRail.querySelector<HTMLButtonElement>('[data-action="theme"]');
+    const label = state.darkMode ? "Switch to light appearance" : "Switch to dark appearance";
+    if (themeButton && themeButton.title !== label) {
+      themeButton.title = label; themeButton.setAttribute("aria-label", label);
+      themeButton.innerHTML = icon(state.darkMode ? "sun" : "moon");
+    }
+  }
+  applySidebarLayout(root);
+  // Avoid flushing the reattached library before the remaining layout writes.
+  // The full render restores its saved scroll position below.
+  if (previousRail && railSlot) renderConnectionSidebar(undefined, false);
   restoreConnectionForm(root, previousConnectionForm);
   restoreConnectionForm(root, previousPasswordForm);
   restoreConnectionForm(root, previousImportForm);
@@ -80,8 +101,50 @@ export function render(): void {
   enhanceSelects(root);
   state.renderedLocation = nextLocation;
   mountTerminal();
+  if (!state.modal && !state.appDialogPrompt && previousFocus instanceof HTMLInputElement && previousRail?.contains(previousFocus)) previousFocus.focus({ preventScroll: true });
   focusModal(root, previousFocus);
   restoreSettingsFocus(root, settingsFocus);
+}
+
+/** Organization changes must not rebuild terminals, dialogs, or the active tool view. */
+let sidebarRenderDeferred = false;
+const connectionLists = new WeakMap<HTMLElement, ConnectionList>();
+const noFolderPaths: string[] = [];
+export function renderConnectionSidebar(focus?: string, restoreScroll = true): void {
+  if (root.dataset.sidebarDragging) {
+    if (!sidebarRenderDeferred) {
+      sidebarRenderDeferred = true;
+      root.addEventListener("sidebar-drag-ended", () => { sidebarRenderDeferred = false; renderConnectionSidebar(); }, { once: true });
+    }
+    return;
+  }
+  const list = root.querySelector<HTMLElement>(".server-list");
+  if (!list) return;
+  const active = document.activeElement as HTMLElement | null;
+  const requestedFocus = focus;
+  const retainedFocus = active && list.contains(active) ? active : null;
+  if (!focus && active && list.contains(active)) {
+    const server = active.closest<HTMLElement>("[data-server-id]");
+    const folder = active.closest<HTMLElement>("[data-action=folder-actions]");
+    if (server) focus = `.server-item[data-server-id="${CSS.escape(server.dataset.serverId!)}"]`;
+    else if (folder) focus = `[data-action="folder-actions"][data-folder="${CSS.escape(folder.dataset.folder ?? "")}"]`;
+  }
+  const scroll = restoreScroll ? list.scrollTop : undefined;
+  const servers = filteredServers();
+  let controller = connectionLists.get(list);
+  if (!controller) { controller = new ConnectionList(list); connectionLists.set(list, controller); }
+  controller.update(state.snapshot.servers, servers, {
+    paths: state.snapshot.connectionFolders ?? noFolderPaths,
+    collapsed: collapsedGroups,
+    searching: Boolean(state.serverQuery.trim()),
+    defaultName: state.snapshot.defaultConnectionFolder,
+    order: state.snapshot.connectionFolderOrder,
+    menuFolder: state.folderMenuPath,
+  }, renderServerItem, connectionRowRevision);
+  if (scroll !== undefined) list.scrollTop = scroll;
+  if (!requestedFocus && retainedFocus?.isConnected) {
+    if (document.activeElement !== retainedFocus) retainedFocus.focus({ preventScroll: true });
+  } else if (focus) list.querySelector<HTMLElement>(focus)?.focus({ preventScroll: true });
 }
 
 function activeGroupTitle(): string | undefined {
@@ -128,9 +191,9 @@ export function renderOperationBanner(): string {
   return `<div class="operation-banner" role="status" aria-live="polite"><span class="operation-spinner"></span><div class="operation-copy"><strong>${escapeHtml(state.activeOperation.label)}</strong><span>${escapeHtml(server?.host ? `SSH can take a moment on ${server.host}. Your workspace is still available.` : "Your workspace is still available while this finishes.")}</span></div><button class="operation-cancel" data-action="cancel-operation">Cancel</button></div>`;
 }
 
+const connectionSearch = new ConnectionSearch();
 export function filteredServers(): ServerProfile[] {
-  const query = state.serverQuery.trim().toLowerCase();
-  const servers = orderedConnections(state.snapshot.servers, state.snapshot.connectionOrder).filter((server) => `${server.name} ${server.host} ${server.groupName ?? ""} ${server.tags.join(" ")} ${server.notes}`.toLowerCase().includes(query));
+  const servers = connectionSearch.filter(state.snapshot.servers, state.snapshot.connectionOrder, state.serverQuery);
   if (state.sidebarCopyPlacement) {
     const sourceIndex = servers.findIndex((server) => server.id === state.sidebarCopyPlacement?.sourceId);
     const copyIndex = servers.findIndex((server) => server.id === state.sidebarCopyPlacement?.copyId);
@@ -148,7 +211,7 @@ export function normalizedGroupName(groupName?: string): string {
 
 export function groupKey(groupName?: string): string {
   const path = normalizedGroupName(groupName);
-  return path ? `folder:${path.toLocaleLowerCase()}` : "ungrouped";
+  return path ? `folder:${path.toLowerCase()}` : "ungrouped";
 }
 
 export function renderServerGroups(servers: ServerProfile[]): string {
@@ -160,10 +223,17 @@ export function shortGroupLabel(group: string): string {
 }
 
 export function renderServerRail(): string {
+  if (retainRail) return '<aside data-retained-rail></aside>';
   const servers = filteredServers();
   const query = state.serverQuery.trim().toLowerCase();
-  return `<aside class="server-rail" aria-label="Connections">
-    <div class="server-rail-flyout">
+  return `<aside class="server-rail" id="connections-sidebar" data-sidebar="connections" aria-label="Connections">
+    ${sidebarControls("connections")}
+    <div class="compact-library" data-sidebar-compact hidden>
+      <button class="icon-button" type="button" data-sidebar-search aria-label="Search connections" title="Search connections">${icon("search")}</button>
+      <button class="icon-button" type="button" data-action="add-server" aria-label="New connection" title="New connection">${icon("plus")}</button>
+      <button class="icon-button" type="button" data-action="credential-settings" aria-label="Settings" title="Settings">${icon("settings")}</button>
+    </div>
+    <div class="server-rail-flyout" data-sidebar-expanded>
       ${platform === "linux" ? "" : `<div class="rail-brand"><span class="brand-mark">${icon("logo")}</span><span class="rail-brand-name">Ternway</span></div>`}
       <div class="sidebar-section server-section">
         <div class="section-label-row"><span class="section-label">Connections</span><span class="connection-drag-hint" title="Drag connections to reorder or move between folders. Alt+↑/↓ moves the focused item.">Drag to organize</span></div>
@@ -180,6 +250,7 @@ export function renderServerRail(): string {
         <button class="button button-quiet library-add" data-action="import-ssh-config">Import SSH config</button><button class="button button-primary library-add" data-action="add-server">${icon("plus")} New connection</button>
       </div>
     </div>
+    ${sidebarSeparator("connections")}
   </aside>`;
 }
 
@@ -187,7 +258,7 @@ export function renderSidebar(): string {
   if (activeServer()?.authMethod === "openSsh") {
     const ready = connectedServerIds.has(activeServer()!.id);
     const shared = activeServer()!.openSsh?.shareConnection !== false;
-    return `<aside class="sidebar"><div class="sidebar-section nav-section"><div class="section-label">OpenSSH connection</div>${[["terminal", "Terminal", "terminal"], ["files", "Files", "files"], ["tunnels", "SSH tunnels", "network"]].map(([view, label, glyph]) => `<button class="nav-item ${state.activeView === view ? "active" : ""}" data-view="${view}" ${view !== "terminal" && !ready ? "disabled" : ""}>${icon(glyph as Parameters<typeof icon>[0])}<span>${label}</span></button>`).join("")}<p class="field-hint">${!shared ? "Enable connection sharing in the connection editor to use files and tunnels." : ready ? "Terminal, files and tunnels share this authenticated connection." : "Authenticate in the terminal to enable files and tunnels."}</p></div>${renderSidebarBottom()}</aside>`;
+    return `<aside class="sidebar" id="tools-sidebar" data-sidebar="tools" aria-label="Connection tools">${sidebarControls("tools")}<div class="sidebar-section nav-section"><div class="section-label">OpenSSH connection</div>${[["terminal", "Terminal", "terminal"], ["files", "Files", "files"], ["tunnels", "SSH tunnels", "network"]].map(([view, label, glyph]) => `<button class="nav-item ${state.activeView === view ? "active" : ""}" data-view="${view}" aria-label="${label}" title="${label}" ${view !== "terminal" && !ready ? "disabled" : ""}>${icon(glyph as Parameters<typeof icon>[0])}<span>${label}</span></button>`).join("")}<p class="field-hint" data-sidebar-expanded>${!shared ? "Enable connection sharing in the connection editor to use files and tunnels." : ready ? "Terminal, files and tunnels share this authenticated connection." : "Authenticate in the terminal to enable files and tunnels."}</p></div>${renderSidebarBottom()}${sidebarSeparator("tools")}</aside>`;
   }
   const nav = [
     ["terminal", "Terminal", "terminal"],
@@ -207,23 +278,31 @@ export function renderSidebar(): string {
     ["administration", "Administration", "settings"],
   ] as const;
   const unsupported = (view: View): boolean => Boolean(unavailableToolReason(view, activeCapabilities(), activeServer()?.authMethod));
-  return `<aside class="sidebar">
+  return `<aside class="sidebar" id="tools-sidebar" data-sidebar="tools" aria-label="Connection tools">${sidebarControls("tools")}
     <div class="sidebar-section nav-section"><div class="section-label">Connection tools</div>${nav.map(([view, label, iconName]) => `<button class="nav-item ${state.activeView === view ? "active" : ""}" data-view="${view}" title="${unavailableToolReason(view, activeCapabilities(), activeServer()?.authMethod) ?? label}" aria-label="${label}" ${!activeServerIsConnected() || unsupported(view) ? "disabled" : ""}>${icon(iconName)}<span>${label}</span>${unsupported(view) ? `<small>Unavailable</small>` : ""}</button>`).join("")}</div>
     ${renderSidebarBottom()}
+    ${sidebarSeparator("tools")}
   </aside>`;
 }
 
 function renderSidebarBottom(): string {
   return `<div class="sidebar-bottom">
-      <button class="utility-link" data-action="credential-settings">${icon("settings")} Settings</button>
+      <button class="utility-link" data-action="credential-settings" aria-label="Settings" title="Settings">${icon("settings")}<span>Settings</span></button>
     </div>`;
+}
+
+function rowConnected(server: ServerProfile): boolean {
+  return connectedServerIds.has(server.id) || state.terminalTabs.some(tab => tab.serverId === server.id && Boolean(tab.sessionId) && !tab.closed && !tab.connecting && (server.authMethod !== "openSsh" || tab.phase === "ready"));
+}
+function connectionRowRevision(server: ServerProfile): string {
+  return JSON.stringify([server.name, server.host, server.username, server.authMethod, server.openSsh?.alias, server.favorite, server.id === state.activeServerId, rowConnected(server)]);
 }
 
 export function renderServerItem(server: ServerProfile): string {
   const initials = server.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
-  const connected = connectedServerIds.has(server.id) || hasInteractiveSession(server.id);
+  const connected = rowConnected(server);
   const tooltip = `${server.name}\n${server.host}`;
-  return `<div class="server-item ${server.id === state.activeServerId ? "active" : ""}" data-server-id="${escapeHtml(server.id)}" role="button" tabindex="0" aria-label="Open ${escapeHtml(server.name)} at ${escapeHtml(server.host)}" title="${escapeHtml(tooltip)}">
+  return `<div class="server-item ${server.id === state.activeServerId ? "active" : ""}" data-server-id="${escapeHtml(server.id)}" data-connection-revision="${escapeHtml(connectionRowRevision(server))}" role="button" tabindex="0" aria-label="Open ${escapeHtml(server.name)} at ${escapeHtml(server.host)}" title="${escapeHtml(tooltip)}">
     <span class="server-avatar">${escapeHtml(initials)}</span><span class="server-item-copy"><strong>${server.favorite ? `${icon("star")} ` : ""}${escapeHtml(server.name)}</strong><small>${server.authMethod === "openSsh" ? `OpenSSH · ${escapeHtml(server.openSsh?.alias || server.host)}` : `${escapeHtml(server.username)}@${escapeHtml(server.host)}`}</small></span><span class="server-item-actions"><button class="server-action" data-server-action="new-tab" data-server-id="${escapeHtml(server.id)}" aria-label="Open another ${escapeHtml(server.name)} workspace" title="Open another workspace">${icon("plus")}</button><button class="server-action" data-server-action="duplicate" data-server-id="${escapeHtml(server.id)}" aria-label="Duplicate ${escapeHtml(server.name)}" title="Duplicate server">${icon("copy")}</button><button class="server-action" data-server-action="edit" data-server-id="${escapeHtml(server.id)}" aria-label="Edit ${escapeHtml(server.name)}" title="Edit connection">${icon("edit")}</button><button class="server-action server-action-delete" data-server-action="delete" data-server-id="${escapeHtml(server.id)}" aria-label="Delete ${escapeHtml(server.name)}" title="Delete server">${icon("trash")}</button></span><span class="connection-dot ${connected ? "online" : ""}" title="${connected ? "Connected" : "Idle or awaiting authentication"}"></span>
   </div>`;
 }

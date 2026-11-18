@@ -19,6 +19,12 @@ export function connectionDrop(servers: ServerProfile[], order: string[] | undef
   }
   const ids = others.map(server => server.id);
   ids.splice(index, 0, id);
+  const source = sorted.find(server => server.id === id)!;
+  if (folderPath(source.groupName).toLowerCase() === destination.toLowerCase()) {
+    const siblings = sorted.filter(server => folderPath(server.groupName).toLowerCase() === destination.toLowerCase()).map(server => server.id);
+    const siblingIds = new Set(siblings);
+    if (ids.filter(item => siblingIds.has(item)).every((item, index) => item === siblings[index])) return null;
+  }
   return { groupName: destination, serverIds: ids };
 }
 
@@ -30,7 +36,7 @@ export function folderDrop(paths: string[], order: string[] | undefined, source:
   if (!all.includes(source) || !all.includes(target)) return null;
   const rest = all.filter(path => path !== source);
   rest.splice(rest.indexOf(target) + (after ? 1 : 0), 0, source);
-  return rest;
+  return rest.every((path, index) => path === all[index]) ? null : rest;
 }
 
 export function orderedFolderPaths(paths: string[], order?: string[]): string[] {

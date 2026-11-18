@@ -1,3 +1,6 @@
+import { createConfigProfile, deleteConfigProfile, discardConfigChanges, inheritConfigField, saveConfigForm, selectConfigProfile, updateConfigField } from "./config-editor";
+import { mutateConnectionLibrary } from "./connection-sidebar";
+import { revealConnectionFolder, remapCollapsedFolders } from "./connection-groups";
 import { folderPath } from "./connection-folders";
 import { isSettingsPage, settingsPageForKey } from "./settings-pages";
 
@@ -10,8 +13,8 @@ import { composingText } from "./keybindings";
 import { openWorkspaceLibrary, saveWorkspaceLayout, openSavedWorkspace, deleteSavedWorkspace } from "./workspace-library";
 import { loadAboutMetadata, aboutBuildSummary } from "./about";
 import { BRAND } from "./brand";
-import { importedDraft, linkedDraft, renderImportChoices } from "./ssh-import";
-import type { SshConfigEntry } from "../types";
+import { SshImportController } from "./ssh-import-controller";
+import { open } from "@tauri-apps/plugin-dialog";
 import { escapeHtml } from "./format";
 import { errorText } from "./command-client";
 import { refreshSnapshot } from "./workspace";
@@ -23,7 +26,7 @@ import { cancelTransfer, changeRemoteMode, changeRemoteOwner, createFolder, dele
 import { changeMasterPasswordForm, createGroup, createUserForm, deleteActiveServer, deleteGroup, deleteServer, disconnectActiveServer, duplicateServer, openPackageDetails, resetCredentialsForm, resetUserPasswordForm, runCronAction, runPackageAction, runUserAction, saveCronForm, saveServerForm, saveWorkspaceTabRenameForm, submitMasterPasswordForm } from "./actions/servers";
 import { formatBytes } from "./format";
 import { confirm, requestTextInput, finishAppDialog, finishTextInput, message, renderAuthFieldsForForm } from "./modals";
-import { filteredServers, groupKey, render, renderServerGroups } from "./render";
+import { groupKey, render, renderConnectionSidebar } from "./render";
 import { closeCustomSelects, syncCustomSelect } from "./select-controls";
 import { cancelCurrentOperation, finishHostKeyPrompt, finishSshPasswordPrompt, setError } from "./session";
 import { activeCapabilities, activeTerminalTabByWorkspace, appWindow, createLogViewer, DEFAULT_INTERFACE_SCALE, root, state } from "./state";
@@ -37,8 +40,17 @@ import { checkForUpdates, RELEASES_URL, updates } from "./updater";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { createWorkspaceTabDragController } from "./workspace-tab-drag";
 
-let importEntries: SshConfigEntry[] = [];
-let importSourcePath = "";
+const sshImport = new SshImportController({
+  read: path => invoke("read_ssh_config", { path }),
+  inspect: (source, aliases) => invoke("inspect_import_source", { source, aliases }),
+  save: (draft, source, alias, updateExisting) => invoke("import_connection", { draft, source, alias, updateExisting }),
+  refresh: () => refreshSnapshot(false),
+  current: form => state.modal === "ssh-import" && root.querySelector('form[data-form="ssh-import"]') === form,
+  browse: async () => {
+    const selected = await open({ title: "Choose SSH configuration", multiple: false, directory: false });
+    return typeof selected === "string" ? selected : null;
+  },
+});
 
 export async function handleClick(event: MouseEvent): Promise<void> {
   const clickedElement = event.target as HTMLElement;
@@ -297,7 +309,7 @@ export async function runAction(action: string, target: HTMLElement = document.c
     case "folder-actions": {
       const path = target.dataset.folder ?? "";
       state.folderMenuPath = state.folderMenuPath === path ? null : path;
-      render();
+      renderConnectionSidebar();
       root.querySelector<HTMLElement>(`[data-action="folder-actions"][data-folder="${CSS.escape(path)}"]`)?.focus();
       break;
     }
@@ -307,29 +319,37 @@ export async function runAction(action: string, target: HTMLElement = document.c
     case "move-connection-folder": {
       const path = target.dataset.folder ?? "";
       state.folderMenuPath = null;
+      renderConnectionSidebar();
       try {
         if (action === "delete-connection-folder") {
           if (!path) break;
           const destination = state.snapshot.defaultConnectionFolder ?? "Default";
           if (!await confirm(`Delete “${path}” and its subfolders? Its connections will move to “${destination}”.`, { title: "Delete folder", kind: "warning", confirmLabel: "Delete folder" })) break;
-          await invoke("delete_connection_folder", { path });
+          await mutateConnectionLibrary("delete_connection_folder", { path });
+          remapCollapsedFolders(path, null);
         } else if (action === "move-connection-folder") {
           const server = state.snapshot.servers.find(server => server.id === target.dataset.connectionId);
           if (!server) break;
-          const value = await requestTextInput({ title: "Move connection", label: `Folder (empty for ${state.snapshot.defaultConnectionFolder ?? "Default"})`, defaultValue: server.groupName ?? "", allowEmpty: true });
+          const value = await requestTextInput({ title: "Move connection", label: `Folder (empty for ${state.snapshot.defaultConnectionFolder ?? "Default"})`, defaultValue: server.groupName ?? "", allowEmpty: true }, true);
           if (value === null) break;
-          await invoke("set_connection_group", { serverIds: [server.id], groupName: folderPath(value) });
+          await mutateConnectionLibrary("set_connection_group", { serverIds: [server.id], groupName: folderPath(value) });
+          revealConnectionFolder(folderPath(value));
         } else {
           const creating = action === "create-connection-folder";
           const parent = creating ? target.dataset.parent ?? "" : path.split("/").slice(0, -1).join("/");
-          const value = await requestTextInput({ title: creating ? "New folder" : "Rename folder", label: "Folder name", defaultValue: creating ? "" : path ? (path.split("/").at(-1) ?? "") : state.snapshot.defaultConnectionFolder ?? "Default", placeholder: "Production" });
+          const value = await requestTextInput({ title: creating ? "New folder" : "Rename folder", label: "Folder name", defaultValue: creating ? "" : path ? (path.split("/").at(-1) ?? "") : state.snapshot.defaultConnectionFolder ?? "Default", placeholder: "Production" }, true);
           if (value === null) break;
           if (value.includes("/")) throw new Error("Use a folder name without /. Create subfolders with the folder’s + control.");
           const destination = folderPath(parent ? `${parent}/${value}` : value);
-          if (creating) await invoke("create_connection_folder", { path: destination });
-          else await invoke("rename_connection_folder", { path, destination });
+          if (creating) {
+            await mutateConnectionLibrary("create_connection_folder", { path: destination });
+            revealConnectionFolder(parent);
+          } else {
+            await mutateConnectionLibrary("rename_connection_folder", { path, destination });
+            remapCollapsedFolders(path, destination);
+          }
         }
-        await refreshSnapshot(false); render();
+        renderConnectionSidebar();
       } catch (error) { setError(error); }
       break;
     }
@@ -344,22 +364,12 @@ export async function runAction(action: string, target: HTMLElement = document.c
       } catch (error) { setError(error); }
       break;
     }
-    case "import-ssh-config": importEntries = []; importSourcePath = ""; state.modal = "ssh-import"; render(); break;
-    case "load-ssh-config": {
-      const form = target.closest<HTMLFormElement>("form")!;
-      const notice = form.querySelector<HTMLElement>("[data-import-error]")!;
-      importEntries = [];
-      form.querySelector<HTMLElement>("[data-import-hosts]")!.textContent = "Reading…";
-      try {
-        const path = String(new FormData(form).get("path") || "");
-        importEntries = await invoke<SshConfigEntry[]>("read_ssh_config", { path });
-        importSourcePath = path;
-        form.querySelector<HTMLElement>("[data-import-hosts]")!.innerHTML = renderImportChoices(importEntries, new FormData(form).get("importMode") === "linked");
-        const reconciliation = await invoke<{existing: string[]; missing: string[]}>("inspect_import_source", { source: path, aliases: importEntries.map(entry => entry.alias) });
-        notice.textContent = `${reconciliation.existing.length} existing imported aliases will be reused. ${reconciliation.missing.length ? `Missing from this source, kept in your library: ${reconciliation.missing.join(", ")}.` : "No previously imported aliases are missing."}`;
-      } catch (error) { notice.textContent = errorText(error); form.querySelector<HTMLElement>("[data-import-hosts]")!.textContent = ""; }
-      break;
-    }
+    case "import-ssh-config": sshImport.reset(); state.modal = "ssh-import"; render(); break;
+    case "load-ssh-config": await sshImport.scan(target.closest<HTMLFormElement>("form")!); break;
+    case "browse-ssh-config": await sshImport.browse(target.closest<HTMLFormElement>("form")!); break;
+    case "select-import-hosts": sshImport.select(target.closest<HTMLFormElement>("form")!, true); break;
+    case "clear-import-hosts": sshImport.select(target.closest<HTMLFormElement>("form")!, false); break;
+    case "cancel-ssh-import": sshImport.cancel(target.closest<HTMLFormElement>("form")!); break;
     case "add-server": state.editingServer = null; state.modal = "server"; state.errorMessage = ""; render(); break;
     case "restart-app": await invoke("request_app_restart"); break;
     case "show-about":
@@ -469,6 +479,10 @@ export async function runAction(action: string, target: HTMLElement = document.c
       if (await confirm("Restarting ends the programs running in your terminals.", { title: "Restart Ternway?" })) await updates.restartNow();
       break;
     case "open-releases": await openUrl(RELEASES_URL).catch(setError); break;
+    case "config-inherit": if (target.dataset.configReset) inheritConfigField(target.dataset.configReset); break;
+    case "config-profile-create": await createConfigProfile(); break;
+    case "config-profile-delete": await deleteConfigProfile(); break;
+    case "config-discard": await discardConfigChanges(); break;
     case "reload-config": await loadTerminalConfig(true); render(); break;
     case "new-terminal": await openNewTerminal(); break;
     case "reconnect-terminal": await reconnectTerminal(); break;
@@ -499,16 +513,16 @@ export async function runAction(action: string, target: HTMLElement = document.c
 
 export function handleInput(event: Event): void {
   const input = event.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+  if (updateConfigField(input)) return;
   if (!input.dataset.field) return;
+  if (input.dataset.field === "import-search" || input.dataset.field === "import-path") {
+    sshImport.change(input.closest<HTMLFormElement>("form")!, input as HTMLInputElement);
+    return;
+  }
   if (input.dataset.field === "server-search") {
     state.serverQuery = input.value;
-    const list = root.querySelector<HTMLElement>(".server-list");
-    if (list) {
-      const servers = filteredServers();
-      list.innerHTML = servers.length || (!state.serverQuery.trim() && state.snapshot.connectionFolders?.length) ? renderServerGroups(servers) : `<div class="server-empty">${state.serverQuery.trim() ? "No matching servers" : "No servers saved yet"}</div>`;
-    } else {
-      render();
-    }
+    if (root.querySelector(".server-list")) renderConnectionSidebar();
+    else render();
   } else if (input.dataset.field === "service-search") {
     const query = input.value.toLowerCase();
     root.querySelectorAll<HTMLElement>("[data-service-row]").forEach((row) => { row.hidden = !row.dataset.serviceRow!.toLowerCase().includes(query); });
@@ -540,6 +554,8 @@ export function handleInput(event: Event): void {
 
 export function handleChange(event: Event): void {
   const input = event.target as HTMLInputElement | HTMLSelectElement;
+  if (updateConfigField(input)) return;
+  if (input.dataset.field === "config-profile") { void selectConfigProfile(input.value); return; }
   if (input.dataset.field === "cron-preset") {
     const schedule = input.closest<HTMLFormElement>("form")?.elements.namedItem("schedule") as HTMLInputElement | null;
     if (schedule && input.value) schedule.value = input.value;
@@ -550,16 +566,8 @@ export function handleChange(event: Event): void {
     void loadActiveView(true);
     return;
   }
-  if (input.dataset.field === "import-mode") {
-    const form = input.closest<HTMLFormElement>("form")!;
-    const linked = input.value === "linked";
-    for (const name of ["username", "identityId"]) {
-      const field = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement;
-      field.disabled = linked;
-      const trigger = field.closest(".custom-select")?.querySelector<HTMLButtonElement>(".custom-select-trigger");
-      if (trigger) trigger.disabled = linked;
-    }
-    form.querySelector<HTMLElement>("[data-import-hosts]")!.innerHTML = renderImportChoices(importEntries, linked);
+  if (input.closest('form[data-form="ssh-import"]')) {
+    sshImport.change(input.closest<HTMLFormElement>("form")!, input);
     return;
   }
   if (input.dataset.field === "ssh-config") {
@@ -624,28 +632,8 @@ export async function handleSubmit(event: SubmitEvent): Promise<void> {
   event.preventDefault();
   const form = event.target as HTMLFormElement;
   const kind = form.dataset.form;
-  if (kind === "ssh-import") {
-    if (!form.reportValidity()) return;
-    const data = new FormData(form);
-    const notice = form.querySelector<HTMLElement>("[data-import-error]")!;
-    const button = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
-    button.disabled = true;
-    let saved = 0;
-    try {
-      const selected = data.getAll("hosts").map(value => Number(value));
-      if (!selected.length) throw new Error("Select at least one host.");
-      const drafts = selected.map(index => data.get("importMode") === "linked"
-        ? linkedDraft(importEntries[index], importSourcePath, String(data.get("groupName") || ""))
-        : importedDraft(importEntries[index], String(data.get("username") || ""), String(data.get("groupName") || ""), String(data.get("identityId") || "")));
-      for (let i = 0; i < drafts.length; i++) {
-        await invoke("import_connection", { draft: drafts[i], source: importSourcePath, alias: importEntries[selected[i]].alias, updateExisting: data.get("updateExisting") === "on" });
-        const checkbox = form.querySelector<HTMLInputElement>(`input[name="hosts"][value="${selected[i]}"]`)!;
-        checkbox.checked = false; checkbox.disabled = true; saved++;
-      }
-      notice.textContent = `Imported ${saved} connection(s). Close this window to review them in the library.`;
-    } catch (error) { notice.textContent = `Imported ${saved} connection(s). ${errorText(error)}`; }
-    finally { await refreshSnapshot(false); button.disabled = false; }
-  }
+  if (kind === "config-settings") await saveConfigForm(form);
+  else if (kind === "ssh-import") await sshImport.submit(form);
   else if (kind === "bulk-connections") { try { await applyBulkConnections(form); } catch (error) { setError(error); } }
   else if (kind === "identity") {
     if (!form.reportValidity()) return;
@@ -691,7 +679,7 @@ export function handleKeydown(event: KeyboardEvent): void {
   if (composingText(event)) return;
   if (event.key === "Escape" && state.folderMenuPath !== null && !state.modal) {
     const path = state.folderMenuPath; state.folderMenuPath = null;
-    event.preventDefault(); render();
+    event.preventDefault(); renderConnectionSidebar();
     root.querySelector<HTMLElement>(`[data-action="folder-actions"][data-folder="${CSS.escape(path)}"]`)?.focus();
     return;
   }

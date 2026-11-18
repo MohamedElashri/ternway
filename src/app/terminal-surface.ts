@@ -4,11 +4,14 @@ import { DEFAULT_HIGHLIGHT, type Trigger } from "./config";
 import { findPathCandidates, opensLink, type PathLinkOptions } from "./links";
 import { parseDirectoryReport } from "./shell-integration";
 import { matchTriggers } from "./triggers";
-import { drawGhostty, ghosttyModifiers, rowColumns, rowText, scrollbarMetrics, type GhosttyFrame, type Highlight } from "./ghostty-renderer";
+import { syncTerminalRows } from "./terminal-rows";
+import { GhosttyPaintState, drawGhostty, ghosttyModifiers, rowColumns, rowText, scrollbarMetrics, type GhosttyFrame, type Highlight } from "./ghostty-renderer";
 
 export interface TerminalAppearance {
   theme: TerminalTheme; fontFamily: string; fontSize: number;
   cursorStyle: "block" | "bar" | "underline"; cursorBlink: boolean; macOptionIsMeta: boolean; scrollback: number;
+  imageStorageMb?: number;
+  adjustUnderlinePosition?: number; clickRepeatInterval?: number; resizeOverlay?: "always" | "never" | "after-first";
 }
 export interface TerminalSurfaceOptions {
   appearance: TerminalAppearance;
@@ -18,6 +21,7 @@ export interface TerminalSurfaceOptions {
   onResize: (cols: number, rows: number) => void; onAck: (bytes: number) => void; onClosed: (message: string) => void;
   onDirectory: (path: string, host: string) => void; onFinished: (command: { exitCode?: number }, seconds: number) => void;
   onPaste: (text: string) => void;
+  onClipboard?: (request: { read: boolean; selection: string; text?: string }) => void;
 }
 interface SearchResult { resultIndex: number; resultCount: number; error?: string }
 
@@ -27,6 +31,7 @@ export class TerminalSurface {
   readonly output: Channel<ArrayBuffer>;
   readonly ready: Promise<string>;
   private appearance: TerminalAppearance;
+  private readonly paintState = new GhosttyPaintState();
   private readonly canvas = document.createElement("canvas");
   private readonly input = document.createElement("textarea");
   private readonly accessible = document.createElement("div");
@@ -52,6 +57,10 @@ export class TerminalSurface {
   private disposed = false; private composing = false;
   private committedText: string | null = null;
   private geometry = "";
+  private lastClick: { time: number; x: number; y: number; count: number } | undefined;
+  private readonly resizeLabel = document.createElement("div");
+  private resizeLabelTimer: number | undefined;
+  private fittedOnce = false;
   private searchVersion = 0;
   private operations: Promise<unknown> = Promise.resolve();
   private readonly searchListeners = new Set<(result: SearchResult) => void>();
@@ -80,7 +89,10 @@ export class TerminalSurface {
     this.cursor.className = "ghostty-cursor";
     this.gutter.className = "ghostty-gutter";
     this.scrollbar.className = "ghostty-scrollbar"; this.scrollbar.append(this.scrollHeight);
-    this.host.append(this.canvas, this.gutter, this.cursor, this.input, this.accessible, this.scrollbar);
+    this.resizeLabel.className = "ghostty-resize-overlay";
+    Object.assign(this.resizeLabel.style, { position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", pointerEvents: "none", padding: "8px 12px", borderRadius: "8px", background: "#20232be6", color: "#fff", zIndex: "5" });
+    this.resizeLabel.hidden = true;
+    this.host.append(this.resizeLabel, this.canvas, this.gutter, this.cursor, this.input, this.accessible, this.scrollbar);
     this.resizeObserver = new ResizeObserver(() => this.scheduleFit());
     this.output = new Channel<ArrayBuffer>(message => this.receive(message));
     this.ready = invoke<string>("ghostty_create", { appearance: this.nativeAppearance(), onOutput: this.output });
@@ -106,7 +118,6 @@ export class TerminalSurface {
     this.canvas.addEventListener("pointermove", event => this.pointer(event, "motion"));
     this.canvas.addEventListener("pointerup", event => this.pointer(event, "release"));
     this.canvas.addEventListener("pointercancel", event => { if (this.nativeButton !== undefined) this.mouse(event, "release", this.nativeButton); this.nativeButton = undefined; this.selectionStart = undefined; });
-    this.canvas.addEventListener("dblclick", event => { void this.selectWord(event).catch(() => undefined); });
     this.canvas.addEventListener("click", event => { if (opensLink(event)) void this.openLink(event).catch(() => undefined); });
     this.host.addEventListener("wheel", event => {
       if (!this.frame) return; event.preventDefault();
@@ -129,7 +140,7 @@ export class TerminalSurface {
   get rows(): number { return this.rowCount; }
   get fontSize(): number { return this.appearance.fontSize; }
   get bracketedPaste(): boolean { return this.frame?.bracketedPaste ?? false; }
-  private nativeAppearance(): object { return { ...this.appearance, cols: this.columns, rows: this.rowCount, imageStorageMb: Math.ceil(this.options.imageStorageMb) }; }
+  private nativeAppearance(): object { return { ...this.appearance, cols: this.columns, rows: this.rowCount, imageStorageMb: Math.ceil(this.appearance.imageStorageMb ?? this.options.imageStorageMb) }; }
   /** Preserve input ordering even when one IPC round trip takes longer than another. */
   private action<T = unknown>(action: object, current: () => boolean = () => true): Promise<T> {
     const task = this.operations.then(async () => {
@@ -190,6 +201,7 @@ export class TerminalSurface {
     this.disposed = true; this.flushAck(); this.resizeObserver.disconnect();
     if (this.fitFrame !== undefined) cancelAnimationFrame(this.fitFrame);
     if (this.paintFrame !== undefined) cancelAnimationFrame(this.paintFrame);
+    window.clearTimeout(this.resizeLabelTimer);
     this.host.remove(); this.searchListeners.clear();
     void this.ready.then(id => invoke("ghostty_action", { id, action: { kind: "dispose" } })).catch(() => undefined);
   }
@@ -225,7 +237,8 @@ export class TerminalSurface {
     if (this.unacked >= 256 * 1024) this.flushAck();
     else if (this.unacked && this.ackTimer === undefined) this.ackTimer = window.setTimeout(() => this.flushAck(), 50);
     for (const effect of frame.effects) {
-      if (effect.kind === "title") this.options.onTitle(effect.title ?? "");
+      if (effect.kind === "clipboard") this.options.onClipboard?.({ read: effect.read === true, selection: effect.selection ?? "c", text: effect.text });
+      else if (effect.kind === "title") this.options.onTitle(effect.title ?? "");
       else if (effect.kind === "directory") { const report = parseDirectoryReport(effect.uri ?? ""); if (report) this.options.onDirectory(report.path, report.host); }
       else if (effect.kind === "finished") this.options.onFinished({ exitCode: effect.exitCode }, effect.seconds ?? 0);
       else if (effect.kind === "bell") { this.host.classList.add("bell"); window.setTimeout(() => this.host.classList.remove("bell"), 120); }
@@ -245,7 +258,15 @@ export class TerminalSurface {
       const cellWidth = Math.max(1, Math.round(this.cellWidth));
       const geometry = `${cols}:${rows}:${cellWidth}:${this.cellHeight}`;
       if (geometry !== this.geometry) { this.geometry = geometry; this.quiet({ kind: "resize", cols, rows, cellWidth, cellHeight: this.cellHeight }); }
-      if (changed) this.options.onResize(cols, rows);
+      if (changed) {
+        this.options.onResize(cols, rows);
+        if (this.appearance.resizeOverlay !== "never" && (this.fittedOnce || this.appearance.resizeOverlay === "always")) {
+          this.resizeLabel.textContent = `${cols} × ${rows}`; this.resizeLabel.hidden = false;
+          window.clearTimeout(this.resizeLabelTimer);
+          this.resizeLabelTimer = window.setTimeout(() => { this.resizeLabel.hidden = true; }, 750);
+        }
+      }
+      this.fittedOnce = true;
       this.schedulePaint();
     });
   }
@@ -255,8 +276,9 @@ export class TerminalSurface {
   }
   private paint(): void {
     const frame = this.frame; if (!frame || this.disposed || this.host.hidden) return;
-    drawGhostty(this.canvas, frame, this.appearance.fontFamily, this.fontSize, this.cellWidth, this.cellHeight, this.appearance.theme.selectionBackground ?? "#264f78", this.images, this.highlights, this.appearance.theme.selectionForeground);
-    this.accessible.replaceChildren(...frame.lines.map(row => { const line = document.createElement("div"); line.textContent = rowText(row).trimEnd(); return line; }));
+    const paintRows = this.paintState.changedRows(frame, JSON.stringify([this.appearance.fontFamily, this.fontSize, this.cellWidth, this.cellHeight, window.devicePixelRatio || 1, this.appearance.theme.selectionBackground, this.appearance.theme.selectionForeground, this.appearance.adjustUnderlinePosition]), this.highlights);
+    if (!paintRows || paintRows.size) drawGhostty(this.canvas, frame, this.appearance.fontFamily, this.fontSize, this.cellWidth, this.cellHeight, this.appearance.theme.selectionBackground ?? "#264f78", this.images, this.highlights, this.appearance.theme.selectionForeground, this.appearance.adjustUnderlinePosition ?? 0, paintRows);
+    syncTerminalRows(this.accessible, frame.lines);
     const scroll = scrollbarMetrics(frame.total, frame.rows, this.cellHeight, this.scrollbar.clientHeight);
     this.pixelsPerScrollRow = scroll.pixelsPerRow;
     this.scrollHeight.style.height = `${scroll.height}px`;
@@ -297,7 +319,17 @@ export class TerminalSurface {
     }
     if (action === "press" && event.button === 0) {
       event.preventDefault(); this.focus(); if (opensLink(event)) return;
-      this.selectionStart = this.point(event); this.selected = ""; this.quiet({ kind: "clearSelection" }); this.canvas.setPointerCapture(event.pointerId);
+      const [x, y] = this.point(event); const now = performance.now(); const last = this.lastClick;
+      const interval = this.appearance.clickRepeatInterval ?? 500;
+      const count = last && interval > 0 && now - last.time <= interval && last.x === x && last.y === y ? last.count + 1 : 1;
+      this.lastClick = { time: now, x, y, count };
+      if (count === 2) { this.selectionStart = undefined; void this.selectWord(event).catch(() => undefined); return; }
+      if (count >= 3) {
+        this.lastClick = undefined; this.selectionStart = undefined;
+        void this.action<string>({ kind: "select", start: [0, y], end: [(this.frame?.cols ?? this.cols) - 1, y], rectangle: false }).then(text => { if (!this.disposed) { this.selected = text; this.options.onSelection(); } }).catch(() => undefined);
+        return;
+      }
+      this.selectionStart = [x, y]; this.selected = ""; this.quiet({ kind: "clearSelection" }); this.canvas.setPointerCapture(event.pointerId);
     } else if (this.selectionStart && (action === "release" || action === "motion")) {
       const end = this.point(event); const start = this.selectionStart;
       if (action === "release") { this.selectionStart = undefined; if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId); }

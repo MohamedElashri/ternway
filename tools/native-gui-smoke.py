@@ -30,11 +30,13 @@ config = root / "config" / "ternway"
 config.mkdir()
 (config / "config").write_text("command = /bin/sh\nenv = PS1=CI_TEST_PROMPT\nshell-integration = none\nwindow-save-state = always\nsave-scrollback = true\nclipboard-history = false\n")
 log = (artifacts / "driver.log").open("w")
-reserved=[socket.socket(),socket.socket()]
-for listener in reserved:listener.bind(('127.0.0.1',0))
-driver_port,native_port=[listener.getsockname()[1] for listener in reserved]
-for listener in reserved:listener.close()
-driver = subprocess.Popen(["tauri-driver", "--port", str(driver_port), "--native-port", str(native_port), "--native-driver", "/usr/bin/WebKitWebDriver"], stdout=log, stderr=log, start_new_session=True)
+reserved = socket.socket()
+reserved.bind(('127.0.0.1', 0))
+driver_port = reserved.getsockname()[1]
+reserved.close()
+# This Linux-only suite uses WebKit's native binary capability directly. Avoid
+# an intermediary HTTP pool whose stale upstream connection can lose input.
+driver = subprocess.Popen(["/usr/bin/WebKitWebDriver", f"--port={driver_port}", "--host=127.0.0.1"], stdout=log, stderr=log, start_new_session=True)
 base = f"http://127.0.0.1:{driver_port}"
 verified_app = False
 session = None
@@ -69,21 +71,25 @@ def read(script, *args):
     return execute(script,*args,idempotent=True)
 
 def invoke(command, **args):
-    read_only = command in {'get_state','list_workspaces','list_transfer_jobs','terminal_activities','read_clipboard_text','preview_library_backup','read_remote_file','list_remote_files'}
+    read_only = command in {'get_state','list_workspaces','list_transfer_jobs','terminal_activities','read_clipboard_text','preview_library_backup','read_remote_file','list_remote_files','plugin:window|is_decorated','plugin:window|is_resizable'}
     result = request("POST", f"/session/{session}/execute/async", {"script": "const done=arguments[arguments.length-1]; window.__TAURI_INTERNALS__.invoke(arguments[0],arguments[1]).then(value=>done({ok:true,value}),error=>done({ok:false,error}));", "args": [command, args]},idempotent=read_only)
     if not result["ok"]:
         raise RuntimeError(str(result["error"]))
     return result.get("value")
 
 def element(selector):
-    result = request("POST", f"/session/{session}/element", {"using": "css selector", "value": selector})
+    # Expanded and compact rails expose the same actions. Resolve the visible
+    # control rather than whichever hidden variant occurs first in DOM order.
+    result = read("return [...document.querySelectorAll(arguments[0])].find(el=>!!el.getClientRects().length) ?? null;", selector)
+    if result is None:
+        raise RuntimeError(f'No visible element: {selector}')
     return result["element-6066-11e4-a52e-4f735466cecf"]
 
 def click(selector):
     deadline = time.monotonic() + 30
     def prepare():
         target = element(selector)
-        present = execute("const el=document.querySelector(arguments[0]); if(!el) return false; el.scrollIntoView({block:'center'}); return true;", selector,idempotent=True)
+        present = execute("arguments[0].scrollIntoView({block:'center'});return true;", {"element-6066-11e4-a52e-4f735466cecf": target}, idempotent=True)
         return target if present else None
     while time.monotonic() < deadline:
         # Lookup/scroll are safe to retry if WebKit resets its connection during
@@ -102,10 +108,12 @@ def click(selector):
 def type_into(selector, text):
     target = wait(lambda: element(selector), f'input ready: {selector}')
     request("POST", f"/session/{session}/element/{target}/clear", {})
-    request("POST", f"/session/{session}/element/{target}/value", {"text": text, "value": list(text)})
+    # WebKit rejects an empty send-keys payload; clear already performs that edit.
+    if text:
+        request("POST", f"/session/{session}/element/{target}/value", {"text": text, "value": list(text)})
 
 def shown(selector):
-    return read("const el=document.querySelector(arguments[0]);return !!el && !!el.getClientRects().length;", selector)
+    return read("return [...document.querySelectorAll(arguments[0])].some(el=>!!el.getClientRects().length);", selector)
 
 def compact_terminal_geometry():
     result = read("""
@@ -126,10 +134,10 @@ def compact_terminal_geometry():
 def start():
     global session, verified_app
     verified_app = False
-    # WebKit resets pooled HTTP connections when the previous application exits.
-    # A safe status read establishes readiness before the one-shot session POST.
+    # WebKit may still be releasing the previous automation session after exit.
+    # Observe native-driver readiness before the one-shot session POST.
     wait(lambda: request("GET", "/status").get("ready"), "native driver ready for a new session")
-    response = request("POST", "/session", {"capabilities": {"alwaysMatch": {"tauri:options": {"application": str(binary)}}}})
+    response = request("POST", "/session", {"capabilities": {"alwaysMatch": {"webkitgtk:browserOptions": {"binary": str(binary)}}}})
     session = response["sessionId"]
     request("POST", f"/session/{session}/timeouts", {"script": 30000, "pageLoad": 30000, "implicit": 0})
     wait(lambda: shown('[data-action="credential-settings"]'), "app bootstrap")
@@ -160,6 +168,7 @@ trap.listen()
 port = trap.getsockname()[1]
 ssh_config = root / "ssh-config"
 ssh_config.write_text(f"Host ci-loopback\n HostName 127.0.0.1\n User qa\n Port {port}\nHost github.com\n HostName github.com\n User git\n")
+sidebar_restart_config = None
 try:
     wait(lambda: request("GET", "/status") is not None, "driver startup")
     start()
@@ -220,6 +229,8 @@ try:
     check('Control reaches the native keyboard encoder and interrupts a real shell process')
     import native_terminal_review
     native_terminal_review.run(globals())
+    import native_terminal_settings_review
+    native_terminal_settings_review.run(globals())
     for width, height in [(1000, 700), (1280, 850), (1080, 720), (1400, 900)]:
         request("POST", f"/session/{session}/window/rect", {"width": width, "height": height})
         # Native decorations make the compositor's resize asynchronous. Wait
@@ -272,9 +283,30 @@ try:
     import native_ui_review
     native_ui_review.run(globals())
 
+    # Geometry and zoom checks can reflow earlier output outside the viewport.
+    # Produce this test's output afterward so each theme must preserve visible
+    # real PTY content without relying on another fixture's scroll position.
+    click('.modal-settings [data-action="close-modal"]')
+    terminal_theme_marker = 'CI_THEME_RETENTION'
+    theme_escaped = ''.join('\\%03o' % byte for byte in terminal_theme_marker.encode())
+    theme_command = f"printf '{theme_escaped}\\n'"
+    execute("const el=document.querySelector('.terminal-host:not([hidden]) .ghostty-input');const data=new DataTransfer();data.setData('text/plain',arguments[0]);el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));", theme_command)
+    request('POST', f'/session/{session}/actions', {'actions': [{'type': 'key', 'id': 'theme-fixture-enter', 'actions': [
+        {'type': 'keyDown', 'value': '\ue007'}, {'type': 'keyUp', 'value': '\ue007'}]}]})
+    wait(lambda: read("return [...document.querySelectorAll('.terminal-host:not([hidden]) .ghostty-accessibility')].some(el=>el.textContent.includes(arguments[0]));", terminal_theme_marker), 'fresh native output before theme changes')
+    screenshot('theme-retention-before.png')
+    click('[data-action="credential-settings"]')
+    click('[data-settings-page="appearance"]')
+
     assert sections[-1] == "About", sections
     assert read("return document.querySelector('#app').dataset.colorTheme;") == 'github-dark'
     theme_backgrounds = [('github-light','#ffffff'), ('github-dark','#0d1117'), ('github-dark-dimmed','#22272e'), ('github-light-high-contrast','#ffffff'), ('github-dark-high-contrast','#0a0c10'), ('github-light-colorblind','#ffffff'), ('github-dark-colorblind','#0d1117'), ('dracula','#282a36')]
+    def saved_theme_is(theme_id):
+        values = [line.partition('=')[2].strip().strip('"') for line in (config / 'config').read_text().splitlines()
+                  if line.partition('=')[0].strip() == 'app-theme']
+        return bool(values) and values[-1] == theme_id
+    def wait_saved_theme(theme_id):
+        wait(lambda: saved_theme_is(theme_id), f'{theme_id} workspace preference saved to config')
     def primary_button_metrics():
         return read("""
           const button=document.querySelector('.settings-footer .button-primary'),style=getComputedStyle(button),rect=button.getBoundingClientRect();
@@ -289,7 +321,7 @@ try:
     for theme_id, background in theme_backgrounds:
         click(f'[data-theme-id="{theme_id}"]')
         wait(lambda: read("return document.querySelector('#app').dataset.colorTheme===arguments[0] && getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()===arguments[1];", theme_id, background), f'live {theme_id} workspace and terminal palette')
-        assert read("return document.querySelector('.terminal-layer').textContent.includes(arguments[0]);", "REVIEW_MOUSE_OK"), 'Theme changes preserve terminal output'
+        assert read("return document.querySelector('.terminal-layer').textContent.includes(arguments[0]);", terminal_theme_marker), 'Theme changes preserve terminal output'
         hover_point(5,5)
         normal=wait(lambda: (value if (value:=primary_button_metrics())['background']==value['accent'] else None), 'normal button palette')
         assert normal['contrast']>=4.5 and abs(normal['height']-34)<0.1 and normal['shadow']=='none', (theme_id,normal)
@@ -298,21 +330,30 @@ try:
         assert hovered['contrast']>=4.5 and hovered['transform']=='none' and abs(hovered['top']-normal['top'])<0.1, (theme_id,hovered)
         if theme_id in ['github-dark','github-light']:
             screenshot(theme_id + '.png')
+    # Theme previews update immediately. External file edits must wait for the
+    # preference write rather than racing its revision-checked save.
+    wait_saved_theme('dracula')
     original_config = (config / 'config').read_text()
     (config / 'config').write_text(original_config + 'background = #123456\n')
     wait(lambda: read("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#123456';"), 'explicit terminal color applied')
     click('[data-theme-id="github-light"]')
     wait(lambda: read("return document.querySelector('#app').dataset.colorTheme==='github-light' && getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#123456';"), 'terminal config color survives workspace theme change')
-    (config / 'config').write_text(original_config)
+    wait_saved_theme('github-light')
+    # Appearance choices now persist to this file. Remove only the terminal
+    # color override so the current workspace theme remains selected.
+    current_config = (config / 'config').read_text()
+    (config / 'config').write_text('\n'.join(line for line in current_config.splitlines() if line.partition('=')[0].strip() != 'background') + '\n')
     wait(lambda: read("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#ffffff';"), 'terminal returns to preset after removing color override')
     click('[data-theme-id="github-dark-dimmed"]')
     wait(lambda: read("return getComputedStyle(document.documentElement).getPropertyValue('--terminal-background').trim()==='#22272e';"), 'dimmed palette restored')
+    wait_saved_theme('github-dark-dimmed')
     check('all built-in themes apply live; primary buttons retain text contrast and stable hover geometry in every theme')
     click('[data-action="close-modal"]')
     assert read("return document.querySelectorAll('[data-action=theme]').length;") == 1
     click('[data-action="theme"]')
-    if read("return document.querySelector('[data-theme]')?.dataset.theme;") != "dark":
-        click('[data-action="theme"]')
+    wait(lambda: read("return document.querySelector('#app').dataset.colorTheme==='github-light';") and saved_theme_is('github-light'), 'global toggle applies and saves the light theme')
+    click('[data-action="theme"]')
+    wait(lambda: read("return document.querySelector('#app').dataset.colorTheme==='github-dark-dimmed';") and saved_theme_is('github-dark-dimmed'), 'global toggle restores and saves the chosen dark variant')
     check("settings order and native dark-mode controls")
 
     click('[data-action="add-server"]')
@@ -364,20 +405,24 @@ try:
     def folder_selector(path):
         return f'.connection-folder[data-folder="{path}"]'
     def create_folder(parent, name):
+        execute("window.__folderContent = document.querySelector('.content-area');")
         click(f'[data-action="create-connection-folder"][data-parent="{parent}"]')
         type_into('[data-form="input-prompt"] [name="value"]', name)
         click('[data-form="input-prompt"] button[type="submit"]')
         path = f'{parent}/{name}' if parent else name
         wait(lambda: path in invoke('get_state')['connectionFolders'], 'inline folder create')
         wait(lambda: shown(folder_selector(path)), 'created folder rendered')
+        assert read("return window.__folderContent === document.querySelector('.content-area');"), 'Folder dialog preserves the active terminal/tool DOM'
     def sidebar_drag(source, target, after=False):
         wait(lambda: shown(source) and shown(target), 'drag source and target rendered after persistence')
+        execute("window.__organizationContent = document.querySelector('.content-area');")
         points = execute("const a=document.querySelector(arguments[0]),b=document.querySelector(arguments[1]);a.scrollIntoView({block:'nearest'});b.scrollIntoView({block:'nearest'});const r=a.getBoundingClientRect(),s=b.getBoundingClientRect();return {x:r.left+25,y:r.top+r.height/2,tx:s.left+25,ty:s.top+s.height*(arguments[2] ? 0.75 : 0.25)};", source, target, after,idempotent=True)
         request('POST', f'/session/{session}/actions', {'actions':[{'type':'pointer','id':'sidebar-drag','parameters':{'pointerType':'mouse'},'actions':[
           {'type':'pointerMove','duration':0,'origin':'viewport','x':int(points['x']),'y':int(points['y'])},
           {'type':'pointerDown','button':0},
           {'type':'pointerMove','duration':400,'origin':'viewport','x':int(points['tx']),'y':int(points['ty'])},
           {'type':'pointerUp','button':0}]}]})
+        assert read("return window.__organizationContent === document.querySelector('.content-area');"), 'Organization preserves the active terminal/tool DOM'
     assert not shown('[data-action="connection-order"]') and not shown('[data-action="connection-folders"]')
     click('[data-action="folder-actions"][data-folder=""]')
     assert not shown('[data-action="delete-connection-folder"][data-folder=""]')
@@ -420,7 +465,7 @@ try:
     assert read("return document.querySelector('.connection-folder .server-item-copy').getBoundingClientRect().width >= 100;"), 'Nested names retain room'
     screenshot('connection-folders.png')
     screenshot('connection-order-folders.png')
-    check('inline folders create, rename, drag and delete; protected renamed default receives removed-folder contents; connection drag order persists')
+    check('inline folders create, rename, drag and delete without replacing the active terminal; protected default receives removed-folder contents; connection drag order persists')
 
     backup = root / "library.json"
     invoke("export_library_backup", path=str(backup), includeSecrets=False)
@@ -463,6 +508,8 @@ try:
     assert read("return document.querySelectorAll('[data-action=theme]').length;") == 1, 'Remote sidebar must not duplicate the global theme toggle'
     click('.nav-item[data-view="terminal"]')
     wait(lambda: read("return document.querySelector('.terminal-layer')?.textContent.includes('fixture-terminal-ready');"), 'interactive SSH terminal output')
+    import native_sidebar_review
+    native_sidebar_review.run(globals())
     def check_tab_alignment():
         def measured():
             return read("const work=[...document.querySelectorAll('.workspace-tab')].map(el=>{const r=el.getBoundingClientRect();return {height:r.height,top:r.top};});const terms=[...document.querySelectorAll('.term-tab')].map(el=>el.getBoundingClientRect().height);const visible=[...document.querySelectorAll('.workspace-tabs .workspace-tab.active,.terminal-tab-list .term-tab.active')].every(el=>{const a=el.getBoundingClientRect(),b=el.parentElement.getBoundingClientRect();return a.left>=b.left-1&&a.right<=b.right+1;});return {work,terms,visible,nested:document.querySelectorAll('button button').length};")
@@ -597,6 +644,11 @@ try:
     request('POST', f'/session/{session}/window', {'handle':original_handle})
     check("named layout opens in another native window at a usable size")
 
+    import native_import_review
+    native_import_review.run(globals())
+    import native_config_review
+    native_config_review.run(globals())
+
     # Exercise the shipped JS updater and real UI with a simulated IPC installer.
     # No release download, package-manager command, or real restart runs here.
     update_handle = request('GET', f'/session/{session}/window')
@@ -684,6 +736,7 @@ try:
     history_escaped=''.join('\\%03o'%byte for byte in history_marker.encode())
     request('POST', f'/session/{session}/element/{history_input}/value', {'text': f"printf '{history_escaped}\\n'\n"})
     wait(lambda:read("return document.querySelector('.terminal-layer')?.textContent.includes(arguments[0]);",history_marker),'history before coordinated quit')
+    sidebar_restart_config = native_sidebar_review.prepare_restart(globals())
 
     # Quit exercises the same all-window save barrier used by updater restart.
     execute("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('request_app_quit'),0); return true;")
@@ -713,6 +766,7 @@ try:
         pass
     session = None
     (data_dir / "transfers.json").write_text("damaged test queue")
+    native_sidebar_review.seed_restart_layout(globals(), data_dir)
     start()
     check_startup_size()
     wait(lambda:read("return document.querySelector('#app')?.dataset.colorTheme==='github-dark-dimmed';"),'selected theme survives restart and restored webview reattaches')
@@ -727,8 +781,13 @@ try:
     check("damaged transfer queue is retained without blocking native terminal startup")
     screenshot("restored-layout.png")
     check("all native windows save and reopen dormant with opted-in history and no command replay")
+    native_sidebar_review.verify_restart(globals())
+    (config / 'config').write_text(sidebar_restart_config)
+    sidebar_restart_config = None
     (artifacts / "results.json").write_text(json.dumps({"backend": os.environ.get("GDK_BACKEND"), "checks": checks}, indent=2))
 finally:
+    if sidebar_restart_config is not None:
+        (config / 'config').write_text(sidebar_restart_config)
     if session:
         try:
             if verified_app: screenshot("final.png")

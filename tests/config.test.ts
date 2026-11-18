@@ -42,7 +42,8 @@ test("reads the user's Ghostty config", () => {
   assert.equal(config.waitAfterCommand, true);
   assert.deepEqual(config.keybinds, ["ctrl+shift+x=close_surface"]);
   assert.equal(config.shellIntegration, "zsh");
-  assert.deepEqual(ignored.map((item) => item.split(" ")[0]), ["title"]);
+  assert.deepEqual(ignored, []);
+  assert.equal(config.title, "Terminal");
 });
 
 test("reports invalid values without failing", () => {

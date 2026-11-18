@@ -53,10 +53,16 @@ impl Store {
         }
         let mut connection = Connection::open(path)
             .map_err(|error| format!("Could not open ternway database: {error}"))?;
+        // SQLite ignores foreign_keys changes inside a transaction.
         connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .map_err(|error| format!("Could not enable database foreign keys: {error}"))?;
+        let schema = connection
+            .transaction()
+            .map_err(|error| format!("Could not begin database initialization: {error}"))?;
+        schema
             .execute_batch(
-                "PRAGMA foreign_keys = ON;
-                 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
+                "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
                  CREATE TABLE IF NOT EXISTS servers (
                     id TEXT PRIMARY KEY NOT NULL,
                     name TEXT NOT NULL,
@@ -99,7 +105,7 @@ impl Store {
             )
             .map_err(|error| format!("Could not initialize ternway database: {error}"))?;
         let has_jump_host = {
-            let mut statement = connection
+            let mut statement = schema
                 .prepare("PRAGMA table_info(servers)")
                 .map_err(|error| format!("Could not inspect ternway database: {error}"))?;
             let columns = statement
@@ -112,15 +118,23 @@ impl Store {
                 .any(|column| column == "jump_host_id")
         };
         if !has_jump_host {
-            connection
+            schema
                 .execute(
                     "ALTER TABLE servers ADD COLUMN jump_host_id TEXT REFERENCES servers(id) ON DELETE SET NULL",
                     [],
                 )
                 .map_err(|error| format!("Could not add bastion support to ternway database: {error}"))?;
         }
+        schema
+            .commit()
+            .map_err(|error| format!("Could not commit database initialization: {error}"))?;
+        // Identity migration uses VACUUM INTO for a recoverable backup and must
+        // observe committed base tables without an enclosing transaction.
         crate::identities::migrate(&mut connection, path)?;
-        connection
+        let schema = connection
+            .transaction()
+            .map_err(|e| format!("Could not begin connection storage initialization: {e}"))?;
+        schema
             .execute_batch(
                 "CREATE TABLE IF NOT EXISTS connection_order (server_id TEXT PRIMARY KEY NOT NULL REFERENCES servers(id) ON DELETE CASCADE, position INTEGER NOT NULL);
                  CREATE TABLE IF NOT EXISTS connection_folders (path TEXT PRIMARY KEY NOT NULL);
@@ -135,6 +149,9 @@ impl Store {
         );",
             )
             .map_err(|e| format!("Could not initialize OpenSSH connections: {e}"))?;
+        schema
+            .commit()
+            .map_err(|e| format!("Could not commit connection storage initialization: {e}"))?;
         crate::library_backup::recover_restore(&connection, credentials_path)?;
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
@@ -723,6 +740,24 @@ impl Store {
         Ok(())
     }
 
+    /// Read only IDs for background activity checks, without decoding every profile
+    /// or issuing one query per saved connection.
+    pub fn tunnel_ids(&self, server_id: Option<&str>) -> Result<Vec<String>, String> {
+        let connection = self.connection.lock().map_err(|e| e.to_string())?;
+        let (query, parameters) = match server_id {
+            Some(id) => ("SELECT id FROM tunnels WHERE server_id = ?1", vec![id]),
+            None => ("SELECT id FROM tunnels", vec![]),
+        };
+        let mut statement = connection
+            .prepare(query)
+            .map_err(|e| format!("Could not read tunnels: {e}"))?;
+        let rows = statement
+            .query_map(rusqlite::params_from_iter(parameters), |row| row.get(0))
+            .map_err(|e| format!("Could not read tunnels: {e}"))?;
+        rows.map(|row| row.map_err(|e| format!("Could not decode tunnel: {e}")))
+            .collect()
+    }
+
     pub fn list_tunnels(
         &self,
         server_id: &str,
@@ -887,6 +922,95 @@ fn row_to_server(row: &rusqlite::Row<'_>) -> rusqlite::Result<ServerProfile> {
 #[cfg(test)]
 mod identity_migration_tests {
     use super::*;
+
+    #[test]
+    #[ignore = "manual backend performance measurement"]
+    fn backend_perf_background_scan() {
+        let dir = std::env::temp_dir().join(format!("ternway-perf-{}", Uuid::new_v4()));
+        let store = Store::open(&dir.join("state.sqlite"), &dir.join("vault")).unwrap();
+        {
+            let mut db = store.connection.lock().unwrap();
+            let tx = db.transaction().unwrap();
+            for i in 0..2000 {
+                let id = format!("synthetic-{i}");
+                tx.execute("INSERT INTO servers(id,name,host,username,port,auth_method,tags_json,favorite,created_at,updated_at) VALUES(?1,?1,'example.test','qa',22,'password','[\"test\",\"fixture\"]',0,'2026-01-01','2026-01-01')", [&id]).unwrap();
+                if i % 10 == 0 {
+                    tx.execute("INSERT INTO tunnels VALUES(?1,?2,'fixture','local','127.0.0.1',1234,'example.test',22)", params![format!("tunnel-{i}"), id]).unwrap();
+                }
+            }
+            tx.commit().unwrap();
+        }
+        let start = std::time::Instant::now();
+        for _ in 0..20 {
+            let ids = store.tunnel_ids(None).unwrap();
+            assert_eq!(ids.len(), 200);
+        }
+        eprintln!(
+            "backend background: profiles=2000 tunnels=200 scans_20_us={}",
+            start.elapsed().as_micros()
+        );
+        let server_ids = (0..64)
+            .map(|i| format!("synthetic-{i}"))
+            .collect::<Vec<_>>();
+        let start = std::time::Instant::now();
+        for _ in 0..20 {
+            for id in &server_ids {
+                assert!(store.get_server(id).is_ok());
+                assert!(!crate::ssh::cached_is_connected(id));
+            }
+        }
+        eprintln!(
+            "backend health: profiles=2000 batch=64 batches_20_us={}",
+            start.elapsed().as_micros()
+        );
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn background_tunnel_ids_include_only_the_requested_connections() {
+        let dir = std::env::temp_dir().join(format!("ternway-tunnel-ids-{}", Uuid::new_v4()));
+        let store = Store::open(&dir.join("state.sqlite"), &dir.join("vault")).unwrap();
+        let draft: ServerDraft = serde_json::from_value(serde_json::json!({
+            "name":"fixture", "host":"example.test", "username":"qa", "port":22
+        }))
+        .unwrap();
+        let first = store.save_server(&draft).unwrap();
+        let second = store.save_server(&draft).unwrap();
+        let add = |server_id: &str, name: &str| {
+            store
+                .save_tunnel(&crate::models::TunnelInput {
+                    id: None,
+                    server_id: server_id.into(),
+                    name: name.into(),
+                    kind: "local".into(),
+                    bind_host: "127.0.0.1".into(),
+                    bind_port: 1234,
+                    target_host: "example.test".into(),
+                    target_port: 22,
+                })
+                .unwrap()
+                .id
+        };
+        let a = add(&first.id, "a");
+        let b = add(&first.id, "b");
+        let c = add(&second.id, "c");
+        let mut all = store.tunnel_ids(None).unwrap();
+        let mut expected = vec![a.clone(), b.clone(), c.clone()];
+        all.sort();
+        expected.sort();
+        assert_eq!(all, expected);
+        let mut selected = store.tunnel_ids(Some(&first.id)).unwrap();
+        let mut expected = vec![a, b];
+        selected.sort();
+        expected.sort();
+        assert_eq!(selected, expected);
+        assert_eq!(store.tunnel_ids(Some(&second.id)).unwrap(), vec![c]);
+        assert!(store.tunnel_ids(Some("missing")).unwrap().is_empty());
+        assert!(!dir.join("vault").exists());
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn connection_group_changes_are_atomic_and_persist_without_vault_access() {
@@ -1123,5 +1247,246 @@ mod credential_privacy_tests {
             "saved secret"
         );
         let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+
+    fn directory() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("ternway-startup-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn exists(db: &Connection, kind: &str, name: &str) -> bool {
+        db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type=?1 AND name=?2)",
+            params![kind, name],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    fn legacy_database(path: &Path) -> Connection {
+        let db = Connection::open(path).unwrap();
+        db.execute_batch(
+            "BEGIN;
+             CREATE TABLE schema_version(version INTEGER NOT NULL);
+             INSERT INTO schema_version VALUES(1);
+             CREATE TABLE servers (
+               id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, host TEXT NOT NULL,
+               username TEXT NOT NULL, port INTEGER NOT NULL, auth_method TEXT NOT NULL,
+               key_path TEXT, group_name TEXT, tags_json TEXT NOT NULL DEFAULT '[]',
+               favorite INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL, last_connected_at TEXT
+             );
+             INSERT INTO servers(id,name,host,username,port,auth_method,created_at,updated_at)
+             VALUES('legacy','Existing host','example.test','qa',22,'password','before','before');
+             CREATE TABLE server_notes(server_id TEXT PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE, notes TEXT NOT NULL, updated_at TEXT NOT NULL);
+             INSERT INTO server_notes VALUES('legacy','Saved notes','before');
+             COMMIT;"
+        ).unwrap();
+        db
+    }
+
+    #[test]
+    #[ignore = "manual backend startup performance measurement"]
+    fn backend_perf_store_startup() {
+        let dir = std::env::temp_dir().join(format!("ternway-startup-perf-{}", Uuid::new_v4()));
+        let path = dir.join("state.sqlite");
+        let vault = dir.join("vault");
+        let start = std::time::Instant::now();
+        let store = Store::open(&path, &vault).unwrap();
+        let fresh = start.elapsed();
+        drop(store);
+        let start = std::time::Instant::now();
+        let store = Store::open(&path, &vault).unwrap();
+        let reopened = start.elapsed();
+        assert!(store.list_servers().unwrap().is_empty());
+        assert!(!vault.exists());
+        eprintln!(
+            "backend startup: fresh_us={} reopen_us={}",
+            fresh.as_micros(),
+            reopened.as_micros()
+        );
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn base_schema_rolls_back_when_bastion_upgrade_fails() {
+        let dir = directory();
+        let path = dir.join("state.sqlite");
+        let db = Connection::open(&path).unwrap();
+        db.execute_batch("CREATE VIEW servers AS SELECT 'legacy' AS id;")
+            .unwrap();
+        drop(db);
+        let error = Store::open(&path, &dir.join("vault")).err().unwrap();
+        assert!(error.contains("Could not add bastion support"), "{error}");
+        let db = Connection::open(&path).unwrap();
+        for name in [
+            "schema_version",
+            "server_notes",
+            "saved_commands",
+            "tunnels",
+        ] {
+            assert!(!exists(&db, "table", name), "partially initialized {name}");
+        }
+        assert!(exists(&db, "view", "servers"));
+        assert!(!path.with_extension("pre-identities.sqlite").exists());
+        assert!(!dir.join("vault").exists());
+        drop(db);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn legacy_upgrade_commits_before_backup_preserves_records_and_enforces_foreign_keys() {
+        let dir = directory();
+        let path = dir.join("state.sqlite");
+        drop(legacy_database(&path));
+        let store = Store::open(&path, &dir.join("vault")).unwrap();
+        let profile = store.get_server("legacy").unwrap();
+        assert_eq!(profile.name, "Existing host");
+        assert_eq!(profile.notes, "Saved notes");
+        assert!(profile.jump_host_id.is_none());
+        {
+            let db = store.connection.lock().unwrap();
+            assert_eq!(
+                db.query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))
+                    .unwrap(),
+                1
+            );
+            assert_eq!(
+                db.query_row("PRAGMA synchronous", [], |row| row.get::<_, i64>(0))
+                    .unwrap(),
+                2
+            );
+            assert!(db.execute("INSERT INTO tunnels VALUES('invalid','missing','fixture','local','127.0.0.1',1234,'example.test',22)", []).is_err());
+        }
+        let backup_path = path.with_extension("pre-identities.sqlite");
+        let backup = Connection::open(&backup_path).unwrap();
+        assert_eq!(
+            backup
+                .query_row("SELECT version FROM schema_version", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert!(
+            backup.prepare("SELECT jump_host_id FROM servers").is_ok(),
+            "base upgrade must be committed before VACUUM INTO"
+        );
+        assert!(!exists(&backup, "table", "identities"));
+        assert_eq!(
+            backup
+                .query_row(
+                    "SELECT notes FROM server_notes WHERE server_id='legacy'",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "Saved notes"
+        );
+        drop(backup);
+        let backup_bytes = std::fs::read(&backup_path).unwrap();
+        drop(store);
+        let store = Store::open(&path, &dir.join("vault")).unwrap();
+        assert_eq!(store.get_server("legacy").unwrap().notes, "Saved notes");
+        assert_eq!(std::fs::read(&backup_path).unwrap(), backup_bytes);
+        assert!(!dir.join("vault").exists());
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn identity_failure_keeps_committed_base_schema_and_recoverable_backup() {
+        let dir = directory();
+        let path = dir.join("state.sqlite");
+        let db = legacy_database(&path);
+        db.execute_batch("CREATE TABLE identities(collision TEXT);")
+            .unwrap();
+        drop(db);
+        let error = Store::open(&path, &dir.join("vault")).err().unwrap();
+        assert!(
+            error.contains("Could not migrate identity storage"),
+            "{error}"
+        );
+        for database in [&path, &path.with_extension("pre-identities.sqlite")] {
+            let db = Connection::open(database).unwrap();
+            assert_eq!(
+                db.query_row("SELECT version FROM schema_version", [], |row| row
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                1
+            );
+            assert!(db.prepare("SELECT jump_host_id FROM servers").is_ok());
+            assert!(exists(&db, "table", "tunnels"));
+            assert!(!exists(&db, "table", "connection_identities"));
+            assert!(!exists(&db, "table", "connection_order"));
+        }
+        assert!(!dir.join("vault").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn extra_schema_rolls_back_without_changing_base_or_identity_storage() {
+        let dir = directory();
+        let path = dir.join("state.sqlite");
+        let store = Store::open(&path, &dir.join("vault")).unwrap();
+        store
+            .connection
+            .lock()
+            .unwrap()
+            .execute_batch(
+                "BEGIN;
+             DROP TABLE connection_folder_order;
+             DROP TABLE connection_order;
+             DROP TABLE connection_folders;
+             DROP TABLE library_preferences;
+             DROP TABLE import_origins;
+             DROP TABLE restore_marker;
+             DROP TABLE password_references;
+             DROP TABLE openssh_connections;
+             CREATE INDEX restore_marker ON servers(name);
+             COMMIT;",
+            )
+            .unwrap();
+        drop(store);
+        let error = Store::open(&path, &dir.join("vault")).err().unwrap();
+        assert!(
+            error.contains("Could not initialize OpenSSH connections"),
+            "{error}"
+        );
+        let db = Connection::open(&path).unwrap();
+        for name in [
+            "connection_order",
+            "connection_folders",
+            "connection_folder_order",
+            "library_preferences",
+            "import_origins",
+            "password_references",
+            "openssh_connections",
+        ] {
+            assert!(!exists(&db, "table", name), "partially initialized {name}");
+        }
+        assert!(exists(&db, "index", "restore_marker"));
+        for name in ["servers", "tunnels", "identities", "connection_identities"] {
+            assert!(exists(&db, "table", name));
+        }
+        assert_eq!(
+            db.query_row("SELECT version FROM schema_version", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            db.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+                .unwrap(),
+            "ok"
+        );
+        drop(db);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

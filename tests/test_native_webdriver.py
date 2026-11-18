@@ -13,6 +13,7 @@ class TransportTests(unittest.TestCase):
             ('POST','/session/test/window',False),
             ('POST','/session/test/element',False),
             ('POST','/session/test/execute/sync',True),
+            ('POST','/session/test/execute/async',True),
         ]:
             with self.subTest(path=path), patch('urllib.request.urlopen',side_effect=[http.client.RemoteDisconnected(),io.BytesIO(b'{"value":42}')]) as send, patch('time.sleep'):
                 self.assertEqual(request('http://localhost',method,path,{},idempotent=explicit),42)

@@ -2,7 +2,8 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { check } from "@tauri-apps/plugin-updater";
-import { root } from "./state";
+import { root, appWindow } from "./state";
+import type { TerminalConfig } from "./config";
 import { UpdateController } from "./updates";
 import { BRAND } from "./brand";
 import { renderUpdateNotice, renderUpdateView, type UpdateMetadata } from "./update-view";
@@ -69,4 +70,28 @@ export async function checkForUpdates(): Promise<void> {
 
 export function renderUpdateSection(standalone = false): string {
   return renderUpdateView(updates.state, metadata, metadataError, standalone);
+}
+
+let automaticMode: TerminalConfig["autoUpdate"] = "off";
+let automaticTimer: number | undefined;
+let automaticGeneration = 0;
+/** Automatic downloads are verified but installation and restart remain explicit actions. */
+export function configureAutomaticUpdates(config: TerminalConfig): void {
+  if (appWindow.label !== "main" || automaticMode === config.autoUpdate) return;
+  automaticMode = config.autoUpdate;
+  const generation = ++automaticGeneration;
+  window.clearTimeout(automaticTimer);
+  if (automaticMode === "off") return;
+  const run = async (): Promise<void> => {
+    const mode = automaticMode;
+    if (mode === "off") return;
+    await loadMetadata();
+    if (automaticMode !== mode) return;
+    if (metadata && !metadata.updateUnsupportedReason && !updates.busy && updates.state.phase !== "installed") {
+      await updates.checkNow();
+      if (automaticMode === "download") await updates.downloadAvailable();
+    }
+    if (generation === automaticGeneration) automaticTimer = window.setTimeout(() => { void run(); }, 6 * 60 * 60 * 1000);
+  };
+  automaticTimer = window.setTimeout(() => { void run(); }, 1000);
 }

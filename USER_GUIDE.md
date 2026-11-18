@@ -195,6 +195,24 @@ Ghostty's theme directories), `background`, `foreground`, `palette`, `cursor-col
 `image-storage-limit`, `quick-terminal-position`, `quick-terminal-size`, `quick-terminal-autohide`
 and `keybind = global:…`, plus Ternway's own `editor`, `trigger` and (in profiles) `match-host`.
 
+Additional terminal and window settings: `title`, `fullscreen`, `adjust-underline-position`
+(in pixels), `clipboard-read`, `clipboard-write`, `click-repeat-interval` (milliseconds),
+`window-height` (rows), `window-width` (columns), `window-theme`, `window-decoration`,
+`window-inherit-font-size`, and `resize-overlay`. Window dimensions include space for the
+workspace controls and respect the screen bounds and minimum window size. Saving unrelated
+settings preserves a window you resized manually.
+
+`clipboard-read` and `clipboard-write` control programs' OSC 52 clipboard requests, with
+`deny` (the default), `allow`, or `ask`. They do not disable your own Copy and Paste actions. `copy-on-select = true` and
+`copy-on-select = clipboard` both copy to the system clipboard in Ternway.
+Clipboard requests in restored scrollback never run. `click-repeat-interval = 0` disables
+repeated-click selection; otherwise double-click selects a word and triple-click selects a row.
+
+`auto-update` accepts `off` (the default), `check`, or `download`. Enabled checks run on startup
+and every six hours in the main workspace; automatic downloads are signature-verified and wait
+for you to choose Install. Restart is always your choice. `auto-update-channel = stable` selects
+Ternway's published release channel; other channels report a configuration error.
+
 **Profiles** are files in `~/.config/ternway/profiles/`, in the same format, layered on top of the
 main config. Open one with "New tab: <name>" in the command palette. A profile with
 `match-host = prod-*` is used for SSH tabs to servers whose host or name matches, for example to
@@ -252,3 +270,52 @@ Choose a workspace color preset in Settings → Appearance. GitHub Dark and GitH
 defaults; dimmed, high-contrast, colorblind and Dracula presets are also included. Previews apply
 live to the workspace and fallback terminal palette. The light/dark shortcut remembers your last
 choice in each mode. Explicit terminal config and profile colors keep priority. See [theme details](docs/THEMES.md).
+
+## Sidebar layout
+
+The Connections library and connection tools each have a collapse/expand button at the top.
+Compact Connections keeps Search, New connection and Settings available; compact tools keeps
+its navigation icons. Search (or Ctrl+K / ⌘K outside a terminal) expands the library and focuses
+its search field. Collapsing either sidebar leaves the active terminal or tool view in place.
+
+Drag a sidebar's right edge to change its width. You can also focus that edge with Tab and use
+Left/Right arrows (10 pixels), Shift+Left/Right (40 pixels), Home (minimum), or End (available
+maximum). Release the pointer or key to save; Escape, lost pointer capture or window focus
+cancels an unfinished resize. Double-click the edge or use its top Reset width button to
+restore the default width. Narrow windows temporarily reduce the displayed widths to leave
+room for the workspace; enlarging the window restores your preferred widths. If the
+interface is too small to expand a rail, Expand and Search explain that you need to enlarge
+the window or reduce Interface scale; their controls remain keyboard-discoverable.
+
+Widths and collapsed states are stored in the main configuration and can also be edited in
+Settings → Terminal → Workspace:
+
+```ini
+sidebar-width = 260
+sidebar-collapsed = false
+tools-sidebar-width = 190
+tools-sidebar-collapsed = false
+```
+
+Connections accepts 160–600 pixels, and tools accepts 140–400 pixels. These settings apply
+across profiles and do not change the quick terminal window.
+
+## Editing terminal settings
+
+Settings → Terminal provides controls for every supported config key, including fonts,
+colors and palettes, clipboard behavior, shortcuts, environment variables, output triggers,
+window behavior, notifications, quick terminal and updates. Expand a group, edit values and
+choose **Save settings**. **Use inherited / default value** removes a local override when you
+save; included files then supply the value. Shell options apply to new sessions. Window
+preferences apply when saved; changing dimensions also resizes the current window. Clipboard history and saved scrollback remain opt-in.
+
+The same settings are readable and editable in `~/.config/ternway/config`. GUI saves preserve
+comments, unknown options and included Ghostty files. If an external editor changes the file
+while your form is open, saving asks you to reload instead of overwriting the external changes.
+Workspace appearance and zoom are stored as `app-theme` and `interface-scale` too.
+
+Use the configuration selector to edit a profile, or **New profile** and **Delete profile** to
+manage files in the adjacent `profiles/` directory. Profiles inherit the main configuration;
+`match-host` applies a profile automatically to matching SSH hostnames or connection names.
+**Included config files** edits `config-file` entries: one path per line, with an optional `?`
+prefix for files that need not exist. GUI overrides apply after those includes.

@@ -1,3 +1,4 @@
+import { TerminalClipboardRequests } from "./terminal-clipboard";
 import { reconnectSession } from "./terminal-reconnect";
 import { shutdownFrozen } from "./shutdown-freeze";
 import { ClipboardHistory } from "./clipboard-history";
@@ -31,17 +32,26 @@ export const focusedSurface = (): TerminalSurface | undefined => state.activeTer
 
 export function createTerminalSurface(tab: TerminalTab): TerminalSurface {
   const appearance = terminalAppearance(tab.profile);
+  const clipboard = new TerminalClipboardRequests({
+    session: () => state.terminalTabs.includes(tab) && !tab.closed && !shutdownFrozen() ? tab.sessionId ?? null : null,
+    permission: read => read ? profileConfig(tab.profile).clipboardRead : profileConfig(tab.profile).clipboardWrite,
+    confirm: read => confirm(`Allow the program in this terminal to ${read ? "read" : "write"} your clipboard?`, { title: "Terminal clipboard access", kind: "warning" }),
+    read: readText,
+    write: writeText,
+    reply: (session, data) => queueTerminalInput(session, data),
+  });
   const surface = new TerminalSurface({
     // New panes inherit the focused pane's font size, like Ghostty's window-inherit-font-size.
-    appearance: { ...appearance, fontSize: focusedSurface()?.fontSize ?? appearance.fontSize },
+    appearance: { ...appearance, fontSize: profileConfig(tab.profile).windowInheritFontSize ? focusedSurface()?.fontSize ?? appearance.fontSize : appearance.fontSize },
     onSelection: () => {
       const { copyOnSelect, trimTrailingSpaces } = profileConfig(tab.profile);
-      // `true` means the primary selection, which a webview cannot write; `clipboard` copies.
-      if (copyOnSelect !== "clipboard") return;
+      // Webviews share the system clipboard; map Ghostty's primary-selection mode to it.
+      if (copyOnSelect === "false") return;
       const text = surface.selectionText(trimTrailingSpaces);
       rememberClipboard(text);
       void writeText(text).catch(() => undefined);
     },
+    onClipboard: request => { void clipboard.enqueue(request).catch(setError); },
     onPaste: text => { void pasteWithProtection(surface, text).catch(setError); },
     onFocus: () => focusPane(tab.id, false),
     onOpenUrl: (url) => { void openUrl(url).catch(setError); },
@@ -126,6 +136,8 @@ function scheduleRender(): void {
 /** The tab's name: the focused pane's program title (OSC 2) when it has one. */
 export function groupTitle(group: TerminalGroup): string {
   if (group.customTitle) return group.title;
+  const configured = profileConfig(state.terminalTabs.find(tab => tab.id === group.focusedId)?.profile).title;
+  if (configured) return configured;
   return state.terminalTabs.find((tab) => tab.id === group.focusedId)?.paneTitle ?? group.title;
 }
 

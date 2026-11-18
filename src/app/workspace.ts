@@ -206,8 +206,19 @@ export async function closeWorkspaceTab(workspaceTabId: string): Promise<void> {
   else render();
 }
 
+let snapshotVersion = 0;
+export function invalidateSnapshot(): void { snapshotVersion++; }
+
 export async function refreshSnapshot(loadView = true): Promise<void> {
-  state.snapshot = await invokeCommand<AppStateSnapshot>("get_state");
+  const version = ++snapshotVersion;
+  const snapshot = await invokeCommand<AppStateSnapshot>("get_state");
+  if (version !== snapshotVersion) return;
+  await applySnapshot(snapshot, loadView);
+}
+
+export async function applySnapshot(snapshot: AppStateSnapshot, loadView = false): Promise<void> {
+  invalidateSnapshot();
+  state.snapshot = snapshot;
   const activeTabIndex = state.activeWorkspaceTabId ? state.openServerTabs.findIndex((tab) => tab.id === state.activeWorkspaceTabId) : -1;
   state.openServerTabs = state.openServerTabs.filter((tab) => state.snapshot.servers.some((server) => server.id === tab.serverId));
   if (state.activeServerId && !state.snapshot.servers.some((server) => server.id === state.activeServerId)) {

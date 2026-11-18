@@ -218,3 +218,25 @@ test("restored restart readiness skips redundant checks and never installs again
   assert.equal(controller.state.phase, "installed");
   assert.equal(controller.state.version, "0.3.2");
 });
+
+test("automatic download verifies once and waits for explicit installation", async () => {
+  const log: string[] = [];
+  const controller = new UpdateController(async () => fakeUpdate(log), async () => { log.push("restart"); }, () => {});
+  await controller.checkNow();
+  await controller.downloadAvailable();
+  assert.deepEqual(log, ["download"]);
+  assert.equal(controller.state.phase, "available");
+  await controller.downloadAvailable();
+  assert.deepEqual(log, ["download"]);
+  await controller.install();
+  assert.deepEqual(log, ["download", "install", "close"]);
+  assert.equal(controller.state.phase, "installed");
+});
+
+test("automatic download verification failure cannot leave an installable package", async () => {
+  const log: string[] = [];
+  const controller = new UpdateController(async () => fakeUpdate(log, { downloadError: new Error("bad signature") }), async () => {}, () => {});
+  await controller.checkNow(); await controller.downloadAvailable(); await controller.install();
+  assert.deepEqual(log, ["download", "close"]);
+  assert.equal(controller.state.phase, "error");
+});

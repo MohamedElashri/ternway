@@ -5,6 +5,20 @@ when importing. Ternway saves the alias and configuration reference, then launch
 installed `/usr/bin/ssh` in an interactive terminal. It does not flatten the configuration
 or run SSH while discovering or saving connections.
 
+In **Import SSH config**, browse for a file or enter its path and choose **Read configuration**.
+Choose **Whole configuration** to import every eligible explicit alias, or **Choose hosts** to
+pick individual aliases. Search by alias, address or username; **Select visible** and **Clear
+visible** affect only search results and keep choices outside the search. Changing connection
+mode preserves your choices. Whole configuration includes Git services; managed mode skips
+aliases whose advanced rules require OpenSSH. Wildcard rules stay in the linked source file.
+
+The preview marks previously imported aliases and reports missing ones without deleting them.
+Repeated imports reuse existing connections; enable the update option to refresh routing and
+authentication while keeping your names, folders, tags and notes. Changing the source path
+requires a fresh preview. Imports show progress; **Stop** finishes the current host and leaves
+the rest ready to import. If a save fails, earlier saves remain, and retry skips those completed
+in the current dialog. Closing the dialog also stops after the current host.
+
 OpenSSH evaluates its configuration at connection time. This covers ProxyJump chains,
 ProxyCommand, dynamic Match rules, canonicalization, IdentityAgent, multiple IdentityFile
 and CertificateFile entries, hardware keys, authentication preferences, host-key policies,

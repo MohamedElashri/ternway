@@ -2,6 +2,7 @@
 mod agent_transport;
 mod appimage;
 mod config;
+mod config_edit;
 mod child_process;
 mod credentials;
 mod cron_support;
@@ -39,6 +40,7 @@ mod tier3;
 mod tunnels;
 mod update_support;
 mod window_geometry;
+mod terminal_window;
 mod ghostty;
 mod desktop_clipboard;
 
@@ -1279,8 +1281,7 @@ fn cancel_operation(operation_id: String) -> Result<(), AppError> {
 
 #[tauri::command(async)]
 fn background_activity(state: State<'_, AppState>, queue: State<'_, transfer_queue::TransferQueue>, server_id: Option<String>) -> Result<serde_json::Value, AppError> {
-    let ids = state.store.list_servers()?.into_iter().filter(|p|server_id.as_ref().is_none_or(|id|p.id==*id)).map(|p|p.id).collect::<Vec<_>>();
-    let mut tunnel_ids=Vec::new(); for id in ids { tunnel_ids.extend(state.store.list_tunnels(&id)?.into_iter().map(|t|t.id)); }
+    let tunnel_ids = state.store.tunnel_ids(server_id.as_deref())?;
     let tunnels=tunnels::statuses(&tunnel_ids).into_iter().filter(|t|t.running).count();
     Ok(serde_json::json!({"tunnels":tunnels,"transfers":queue.pending_count(server_id.as_deref())}))
 }
@@ -1629,6 +1630,25 @@ fn load_config(
 }
 
 #[tauri::command(async)]
+fn save_config_settings(app: AppHandle, profile: Option<String>, expected_revision: String, updates: Vec<config::ConfigUpdate>) -> Result<(), AppError> {
+    config_edit::save_at(&config::config_path()?, profile.as_deref(), &expected_revision, &updates)?;
+    let _ = app.emit("config-changed", ());
+    Ok(())
+}
+#[tauri::command(async)]
+fn create_config_profile(app: AppHandle, name: String) -> Result<(), AppError> {
+    config_edit::create_at(&config::config_path()?, &name)?;
+    let _ = app.emit("config-changed", ());
+    Ok(())
+}
+#[tauri::command(async)]
+fn delete_config_profile(app: AppHandle, name: String, expected_revision: String) -> Result<(), AppError> {
+    config_edit::delete_at(&config::config_path()?, &name, &expected_revision)?;
+    let _ = app.emit("config-changed", ());
+    Ok(())
+}
+
+#[tauri::command(async)]
 fn load_theme(name: String) -> Result<Vec<config::ConfigEntry>, AppError> {
     Ok(config::load_theme(&name)?)
 }
@@ -1732,7 +1752,7 @@ fn parse_ssh_config(path: &std::path::Path) -> Vec<SshConfigEntry> {
     ssh_config::read(path).unwrap_or_default()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn read_ssh_config(path: String) -> Result<Vec<SshConfigEntry>, String> {
     let path = if let Some(tail) = path.strip_prefix("~/") {
         dirs::home_dir()
@@ -1897,6 +1917,7 @@ pub fn run() {
             change_master_password,
             reset_credentials,
             get_state,
+            connection_sidebar::get_connection_library,
             connection_library::import_connection,
             connection_library::inspect_import_source,
             connection_library::bulk_connection_metadata,
@@ -1993,6 +2014,10 @@ pub fn run() {
             terminal_resize,
             terminal_ack,
             load_config,
+            save_config_settings,
+            create_config_profile,
+            delete_config_profile,
+            terminal_window::configure_terminal_window,
             save_session,
             load_session,
             list_workspaces,
