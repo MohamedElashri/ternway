@@ -68,8 +68,10 @@ export function render(): void {
       themeButton.title = label; themeButton.setAttribute("aria-label", label);
       themeButton.innerHTML = icon(state.darkMode ? "sun" : "moon");
     }
-    renderConnectionSidebar();
   }
+  // Avoid flushing the reattached library before the remaining layout writes.
+  // The full render restores its saved scroll position below.
+  if (previousRail && railSlot) renderConnectionSidebar(undefined, false);
   restoreConnectionForm(root, previousConnectionForm);
   restoreConnectionForm(root, previousPasswordForm);
   restoreConnectionForm(root, previousImportForm);
@@ -106,7 +108,7 @@ export function render(): void {
 let sidebarRenderDeferred = false;
 const connectionLists = new WeakMap<HTMLElement, ConnectionList>();
 const noFolderPaths: string[] = [];
-export function renderConnectionSidebar(focus?: string): void {
+export function renderConnectionSidebar(focus?: string, restoreScroll = true): void {
   if (root.dataset.sidebarDragging) {
     if (!sidebarRenderDeferred) {
       sidebarRenderDeferred = true;
@@ -125,7 +127,7 @@ export function renderConnectionSidebar(focus?: string): void {
     if (server) focus = `.server-item[data-server-id="${CSS.escape(server.dataset.serverId!)}"]`;
     else if (folder) focus = `[data-action="folder-actions"][data-folder="${CSS.escape(folder.dataset.folder ?? "")}"]`;
   }
-  const scroll = list.scrollTop;
+  const scroll = restoreScroll ? list.scrollTop : undefined;
   const servers = filteredServers();
   let controller = connectionLists.get(list);
   if (!controller) { controller = new ConnectionList(list); connectionLists.set(list, controller); }
@@ -137,7 +139,7 @@ export function renderConnectionSidebar(focus?: string): void {
     order: state.snapshot.connectionFolderOrder,
     menuFolder: state.folderMenuPath,
   }, renderServerItem, connectionRowRevision);
-  list.scrollTop = scroll;
+  if (scroll !== undefined) list.scrollTop = scroll;
   if (!requestedFocus && retainedFocus?.isConnected) {
     if (document.activeElement !== retainedFocus) retainedFocus.focus({ preventScroll: true });
   } else if (focus) list.querySelector<HTMLElement>(focus)?.focus({ preventScroll: true });
