@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 - 2026-11-17
+## 0.5.0 - 2026-11-18
 
 - Add GUI controls for terminal settings, profiles and includes, with config-file persistence and protection against external edit conflicts.
 - Support the 14 previously ignored terminal preferences for windows, clipboard access, selection timing, underline position and automatic updates.
