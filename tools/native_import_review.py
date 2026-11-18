@@ -10,6 +10,7 @@ def run(h):
     original_ids = {server['id'] for server in original['servers']}
     original_folders = set(original.get('connectionFolders', []))
     rect = h['request']('GET', f"/session/{h['session']}/window/rect")
+    original_theme = h['read']("return document.querySelector('#app').dataset.theme;")
 
     def write_config(copied=False, changed=False, removed=False):
         text = '' if removed else 'Host ci-import-shell\n  HostName first.example.invalid\n  User qa\n'
@@ -39,6 +40,9 @@ def run(h):
         geometry = h['read']("const m=document.querySelector('.modal-ssh-import').getBoundingClientRect(),f=document.querySelector('.modal-ssh-import .modal-actions').getBoundingClientRect();return {left:m.left,right:m.right,bottom:m.bottom,footer:f.bottom,width:innerWidth,height:innerHeight};")
         assert geometry['left'] >= -1 and geometry['right'] <= geometry['width'] + 1 and geometry['bottom'] <= geometry['height'] + 1, geometry
         assert geometry['footer'] <= geometry['height'] + 1, geometry
+        visible = h['read']("const list=document.querySelector('[data-import-hosts]').getBoundingClientRect(),footer=document.querySelector('.modal-ssh-import .modal-actions').getBoundingClientRect(),head=document.querySelector('.modal-ssh-import .modal-head').getBoundingClientRect(),destination=document.querySelector('[data-import-destination]');return {list:Math.min(list.bottom,footer.top)-Math.max(list.top,head.bottom),destination:destination.hidden?true:(destination.getBoundingClientRect().top>=footer.top-1&&destination.getBoundingClientRect().bottom<=innerHeight+1)};")
+        assert visible['list'] >= 56, visible
+        assert visible['destination'], 'new-host destination must stay visible beside the primary action'
         h['screenshot'](name)
 
     write_config()
@@ -61,11 +65,17 @@ def run(h):
         h['click']('[data-action="clear-import-hosts"]')
         h['type_into']('[data-field="import-search"]', '')
         fit_and_capture('ssh-import-review-desktop.png')
+        h['execute']("document.querySelector('[data-action=theme]').click();return true;")
+        h['wait'](lambda: h['read']("return document.querySelector('#app').dataset.theme!==arguments[0];", original_theme), 'alternate import theme')
+        fit_and_capture('ssh-import-review-alternate-theme.png')
+        h['execute']("document.querySelector('[data-action=theme]').click();return true;")
+        h['wait'](lambda: h['read']("return document.querySelector('#app').dataset.theme===arguments[0];", original_theme), 'restore import theme')
         h['request']('POST', f"/session/{h['session']}/window/rect", {'width': 640, 'height': 480})
         fit_and_capture('ssh-import-review-narrow.png')
         h['request']('POST', f"/session/{h['session']}/window/rect", {'width': 1200, 'height': 780})
         h['click']('[data-form="ssh-import"] button[type="submit"]')
         complete('1 added · 0 updated')
+        assert h['shown']('[data-import-done]') and not h['shown']('[data-form=ssh-import] button[type=submit]')
         h['click']('[data-action="select-all-import-hosts"]')
         h['click']('[data-form="ssh-import"] button[type="submit"]')
         complete('2 added · 0 updated')
@@ -118,6 +128,8 @@ def run(h):
         h['click']('[data-action="close-modal"]')
         h['check']('source-first import supports whole/selected hosts, defaults to the permanent folder, refreshes copied/linked imports without duplicates, preserves personal metadata and keeps removed aliases')
     finally:
+        if h['read']("return document.querySelector('#app').dataset.theme!==arguments[0];", original_theme):
+            h['execute']("document.querySelector('[data-action=theme]').click();return true;")
         for server in h['invoke']('get_state')['servers']:
             if server['id'] not in original_ids:
                 h['invoke']('delete_server', serverId=server['id'])

@@ -296,3 +296,19 @@ test("a delayed unchanged file-field blur cannot cancel the review started by a 
   assert.equal(f.controller.source,"/config");
   f.dom.window.close();
 });
+
+
+test("the new-host destination stays beside the action and completion offers Done", async () => {
+  const f=fixture({read:async()=>[entries[0],entries[2]],inspect:async()=>inspection([])});
+  await f.controller.scan(f.form);
+  const destination=f.form.querySelector<HTMLElement>('[data-import-destination]')!;
+  assert.ok(destination.closest('.modal-actions'));
+  assert.equal(destination.hidden,false);
+  await f.controller.submit(f.form);
+  assert.equal(f.form.querySelector<HTMLButtonElement>('[data-import-done]')!.hidden,false);
+  assert.equal(f.form.querySelector<HTMLButtonElement>('button[type=submit]')!.hidden,true);
+  f.controller.select(f.form,true,true);
+  assert.equal(f.form.querySelector<HTMLButtonElement>('[data-import-done]')!.hidden,true);
+  assert.equal(f.form.querySelector<HTMLButtonElement>('button[type=submit]')!.hidden,false);
+  f.dom.window.close();
+});

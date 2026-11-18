@@ -43,6 +43,7 @@ export function renderImportChoices(choices: ImportChoice[], selected: ReadonlyS
 
 /** The source and review steps deliberately share one retained form. */
 export function renderSshImportForm(defaultFolder: string, folders: string[], identities: {id: string; name: string}[]): string {
+  const destination = `<div data-import-destination class="import-destination" hidden><label class="field"><span>Folder for new connections</span><select name="folder" disabled><option value="">${escapeHtml(defaultFolder || "Default")}${defaultFolder && defaultFolder !== "Default" ? " (default)" : ""}</option>${folders.map(folder => `<option value="path:${escapeHtml(folder)}">${escapeHtml(folder)}</option>`).join("")}<option value="new">Create a folder…</option></select></label><label class="field" data-import-new-folder hidden><span>New folder name</span><input name="groupName" placeholder="Work / Servers" disabled/></label></div>`;
   return `<form class="modal-body import-flow" data-form="ssh-import" data-connection-id="ssh-import">
     <ol class="import-steps" aria-label="Import progress"><li data-import-step="source" aria-current="step"><span>1</span>Choose file</li><li data-import-step="review"><span>2</span>Review connections</li></ol>
     <fieldset data-import-source class="import-source import-options">
@@ -51,11 +52,11 @@ export function renderSshImportForm(defaultFolder: string, folders: string[], id
       <p class="field-hint">Include files are read too. Reviewing a file does not connect to any hosts.</p>
     </fieldset>
     <fieldset data-import-review class="import-options" hidden disabled>
-      <div class="import-file-bar"><div><strong>Configuration file</strong><code data-import-file></code></div><div><button type="button" class="button button-quiet" data-action="change-import-file">Change file</button><button type="button" class="button button-quiet" data-action="reload-ssh-config">Reload file</button></div></div>
+      <div class="import-file-bar"><div><strong data-import-file-name>Configuration file</strong><span class="import-file-path" data-import-file></span></div><div><button type="button" class="button button-quiet" data-action="change-import-file">Change file</button><button type="button" class="button button-quiet" data-action="reload-ssh-config">Reload file</button></div></div>
       <div class="import-intent" role="group" aria-label="What to do with these connections"><button type="button" data-action="set-import-intent" data-import-intent="new" aria-pressed="true">Add new</button><button type="button" data-action="set-import-intent" data-import-intent="updates" aria-pressed="false">Update imported</button><button type="button" data-action="set-import-intent" data-import-intent="all" aria-pressed="false">Add & update</button></div>
       <div class="import-list-tools"><label class="field"><span class="sr-only">Find a host</span><input type="search" name="hostQuery" data-field="import-search" placeholder="Find a host…" aria-controls="ssh-import-hosts"/></label><button type="button" class="button button-quiet" data-action="select-all-import-hosts">Select all hosts</button><button type="button" class="button button-quiet" data-action="select-import-hosts">Select shown</button><button type="button" class="button button-quiet" data-action="clear-import-hosts">Clear shown</button></div>
       <output data-import-summary aria-live="polite"></output><div id="ssh-import-hosts" data-import-hosts aria-label="Connections to import"></div><p data-import-no-matches class="import-empty" hidden>No hosts match your search.</p>
-      <div data-import-destination class="import-destination"><label class="field"><span>Folder for new connections</span><select name="folder"><option value="">${escapeHtml(defaultFolder || "Default")}${defaultFolder && defaultFolder !== "Default" ? " (default)" : ""}</option>${folders.map(folder => `<option value="path:${escapeHtml(folder)}">${escapeHtml(folder)}</option>`).join("")}<option value="new">Create a folder…</option></select></label><label class="field" data-import-new-folder hidden><span>New folder name</span><input name="groupName" placeholder="Work / Servers" disabled/></label></div>
+
       <p data-import-update-note class="import-update-note" hidden>Updates keep your names, folders, tags and notes. Active connections may be disconnected to apply refreshed settings.</p>
       <p data-import-missing class="field-hint" hidden></p>
       <details class="import-advanced" data-import-advanced><summary>Connection options</summary><div class="form-stack">
@@ -64,7 +65,7 @@ export function renderSshImportForm(defaultFolder: string, folders: string[], id
       </div></details>
     </fieldset>
     <div class="import-feedback"><progress data-import-progress hidden aria-label="Import progress"></progress><p data-import-error role="status" aria-live="polite"></p></div>
-    <div class="modal-actions"><button type="button" class="button button-quiet" data-action="close-modal">Close</button><div class="modal-actions-right"><button type="button" class="button button-quiet" data-action="cancel-ssh-import" hidden>Stop</button><button type="button" class="button button-primary" data-action="load-ssh-config">Review connections</button><button type="submit" class="button button-primary" hidden disabled>Import connections</button></div></div>
+    <div class="modal-actions"><button type="button" class="button button-quiet" data-action="close-modal" data-import-close>Close</button>${destination}<div class="modal-actions-right"><button type="button" class="button button-quiet" data-action="cancel-ssh-import" hidden>Stop</button><button type="button" class="button button-primary" data-action="load-ssh-config">Review connections</button><button type="submit" class="button button-primary" hidden disabled>Import connections</button><button type="button" class="button button-primary" data-action="close-modal" data-import-done hidden>Done</button></div></div>
   </form>`;
 }
 

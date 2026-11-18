@@ -71,7 +71,9 @@ export class SshImportController {
       if (step.dataset.importStep === this.step) step.setAttribute("aria-current", "step");
       else step.removeAttribute("aria-current");
     });
-    form.querySelector<HTMLElement>("[data-import-file]")!.textContent = this.source;
+    const file = form.querySelector<HTMLElement>("[data-import-file]")!;
+    file.textContent = this.source; file.title = this.source;
+    form.querySelector<HTMLElement>("[data-import-file-name]")!.textContent = this.source.split("/").pop() || "Configuration file";
     const query = field(form, "hostQuery").value;
     const hosts = form.querySelector<HTMLElement>("[data-import-hosts]")!;
     const active = form.ownerDocument.activeElement;
@@ -92,11 +94,13 @@ export class SshImportController {
     field(form, "importMode").disabled = !hasNew;
     form.querySelector<HTMLElement>("[data-import-managed]")!.hidden = !hasManaged;
     for (const name of ["username", "identityId"]) field(form, name).disabled = !hasManaged;
-    form.querySelector<HTMLElement>("[data-import-destination]")!.hidden = !added;
-    field(form, "folder").disabled = !added;
-    const customFolder = Boolean(added && field(form, "folder").value === "new");
+    const destination = Boolean(review && added);
+    form.querySelector<HTMLElement>("[data-import-destination]")!.hidden = !destination;
+    form.querySelector<HTMLElement>("[data-import-close]")!.hidden = destination;
+    field(form, "folder").disabled = !destination || this.saving;
+    const customFolder = destination && field(form, "folder").value === "new";
     form.querySelector<HTMLElement>("[data-import-new-folder]")!.hidden = !customFolder;
-    field(form, "groupName").disabled = !customFolder;
+    field(form, "groupName").disabled = !customFolder || this.saving;
     field(form, "groupName").required = customFolder;
     form.querySelector<HTMLElement>("[data-import-update-note]")!.hidden = !updated;
     const missing = form.querySelector<HTMLElement>("[data-import-missing]")!;
@@ -111,7 +115,9 @@ export class SshImportController {
     scan.hidden = review; scan.disabled = this.reading || this.saving;
     scan.textContent = this.reading ? "Reading configuration…" : "Review connections";
     const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
-    submit.hidden = !review;
+    const finished = review && !this.saving && this.completed.size > 0 && !selected.length;
+    submit.hidden = !review || finished;
+    form.querySelector<HTMLButtonElement>("[data-import-done]")!.hidden = !finished;
     submit.disabled = this.reading || this.saving || (review && (!selected.length || field(form, "path").value.trim() !== this.source));
     submit.textContent = added && updated ? `Add ${added} & update ${updated}` : updated ? `Update ${updated} connection${updated === 1 ? "" : "s"}` : `Add ${added} connection${added === 1 ? "" : "s"}`;
     form.querySelector<HTMLButtonElement>('[data-action="cancel-ssh-import"]')!.hidden = !this.reading && !this.saving;
@@ -198,7 +204,7 @@ export class SshImportController {
         if (sameSource && priorKeys.has(choice.key) ? previousSelection.has(choice.key) : !choice.entry.service && importable(choice.entry, choice.linked)) this.selected.add(choice.key);
       }
       this.step = "review";
-      notice(form, `${entries.length} named host${entries.length === 1 ? "" : "s"} found. Review your selection below.`);
+      notice(form, "");
     } catch (error) {
       if (current()) {
         this.step = "source";
