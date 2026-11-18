@@ -67,7 +67,7 @@
   .modal-ssh-import .modal-head h2 { margin: 0 0 4px; font-size: 20px; }
   .modal-ssh-import .modal-head p { margin: 0; font-size: 11px; line-height: 1.4; }
   .import-flow { padding: 12px 16px; gap: 10px; }
-  .import-source { gap: 10px; }
+  .import-options { gap: 10px; }
   .import-file-bar { padding: 8px; }
   .import-flow .modal-actions { bottom: -12px; padding-top: 10px; }
 }

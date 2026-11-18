@@ -41,9 +41,9 @@ def run(h):
         assert geometry['left'] >= -1 and geometry['right'] <= geometry['width'] + 1 and geometry['bottom'] <= geometry['height'] + 1, geometry
         assert geometry['footer'] <= geometry['height'] + 1, geometry
         visible = h['read']("const list=document.querySelector('[data-import-hosts]').getBoundingClientRect(),footer=document.querySelector('.modal-ssh-import .modal-actions').getBoundingClientRect(),head=document.querySelector('.modal-ssh-import .modal-head').getBoundingClientRect(),destination=document.querySelector('[data-import-destination]');return {list:Math.min(list.bottom,footer.top)-Math.max(list.top,head.bottom),destination:destination.hidden?true:(destination.getBoundingClientRect().top>=footer.top-1&&destination.getBoundingClientRect().bottom<=innerHeight+1)};")
+        h['screenshot'](name)
         assert visible['list'] >= 56, visible
         assert visible['destination'], 'new-host destination must stay visible beside the primary action'
-        h['screenshot'](name)
 
     write_config()
     try:
