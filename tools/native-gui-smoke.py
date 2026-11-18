@@ -76,14 +76,18 @@ def invoke(command, **args):
     return result.get("value")
 
 def element(selector):
-    result = request("POST", f"/session/{session}/element", {"using": "css selector", "value": selector})
+    # Expanded and compact rails expose the same actions. Resolve the visible
+    # control rather than whichever hidden variant occurs first in DOM order.
+    result = read("return [...document.querySelectorAll(arguments[0])].find(el=>!!el.getClientRects().length) ?? null;", selector)
+    if result is None:
+        raise RuntimeError(f'No visible element: {selector}')
     return result["element-6066-11e4-a52e-4f735466cecf"]
 
 def click(selector):
     deadline = time.monotonic() + 30
     def prepare():
         target = element(selector)
-        present = execute("const el=document.querySelector(arguments[0]); if(!el) return false; el.scrollIntoView({block:'center'}); return true;", selector,idempotent=True)
+        present = execute("arguments[0].scrollIntoView({block:'center'});return true;", {"element-6066-11e4-a52e-4f735466cecf": target}, idempotent=True)
         return target if present else None
     while time.monotonic() < deadline:
         # Lookup/scroll are safe to retry if WebKit resets its connection during
@@ -107,7 +111,7 @@ def type_into(selector, text):
         request("POST", f"/session/{session}/element/{target}/value", {"text": text, "value": list(text)})
 
 def shown(selector):
-    return read("const el=document.querySelector(arguments[0]);return !!el && !!el.getClientRects().length;", selector)
+    return read("return [...document.querySelectorAll(arguments[0])].some(el=>!!el.getClientRects().length);", selector)
 
 def compact_terminal_geometry():
     result = read("""
