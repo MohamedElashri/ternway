@@ -889,6 +889,53 @@ mod identity_migration_tests {
     use super::*;
 
     #[test]
+    #[ignore = "manual backend performance measurement"]
+    fn backend_perf_background_scan() {
+        let dir = std::env::temp_dir().join(format!("ternway-perf-{}", Uuid::new_v4()));
+        let store = Store::open(&dir.join("state.sqlite"), &dir.join("vault")).unwrap();
+        {
+            let mut db = store.connection.lock().unwrap();
+            let tx = db.transaction().unwrap();
+            for i in 0..2000 {
+                let id = format!("synthetic-{i}");
+                tx.execute("INSERT INTO servers(id,name,host,username,port,auth_method,tags_json,favorite,created_at,updated_at) VALUES(?1,?1,'example.test','qa',22,'password','[\"test\",\"fixture\"]',0,'2026-01-01','2026-01-01')", [&id]).unwrap();
+                if i % 10 == 0 {
+                    tx.execute("INSERT INTO tunnels VALUES(?1,?2,'fixture','local','127.0.0.1',1234,'example.test',22)", params![format!("tunnel-{i}"), id]).unwrap();
+                }
+            }
+            tx.commit().unwrap();
+        }
+        let start = std::time::Instant::now();
+        for _ in 0..20 {
+            let mut ids = Vec::new();
+            for server in store.list_servers().unwrap() {
+                ids.extend(store.list_tunnels(&server.id).unwrap().into_iter().map(|t| t.id));
+            }
+            assert_eq!(ids.len(), 200);
+        }
+        eprintln!(
+            "backend background: profiles=2000 tunnels=200 scans_20_us={}",
+            start.elapsed().as_micros()
+        );
+        let server_ids = (0..64)
+            .map(|i| format!("synthetic-{i}"))
+            .collect::<Vec<_>>();
+        let start = std::time::Instant::now();
+        for _ in 0..20 {
+            for id in &server_ids {
+                assert!(store.get_server(id).is_ok());
+                assert!(!crate::ssh::cached_is_connected(id));
+            }
+        }
+        eprintln!(
+            "backend health: profiles=2000 batch=64 batches_20_us={}",
+            start.elapsed().as_micros()
+        );
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn connection_group_changes_are_atomic_and_persist_without_vault_access() {
         let dir = std::env::temp_dir().join(format!("ternway-groups-{}", Uuid::new_v4()));
         let store = Store::open(&dir.join("state.sqlite"), &dir.join("vault")).unwrap();

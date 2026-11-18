@@ -1759,6 +1759,57 @@ fn key_code(code: &str) -> ghostty_vt::key::Key {
 mod tests {
     use super::*;
     #[test]
+    #[ignore = "manual backend performance measurement"]
+    fn backend_perf_search_navigation() {
+        let mut engine = engine(120);
+        let mut appearance = engine.appearance.clone();
+        appearance.scrollback = 16_000_000;
+        engine.configure(appearance).unwrap();
+        engine.write(
+            &b"log entry needle: checking synthetic build output 0123456789\r\n".repeat(4000),
+            true,
+        );
+        let rows = engine.terminal.total_rows().unwrap();
+        let start = Instant::now();
+        let first = engine.find("needle", false, false, false).unwrap();
+        let first_time = start.elapsed();
+        assert_eq!(first["resultCount"], 4000);
+        let start = Instant::now();
+        for _ in 0..20 {
+            assert_eq!(
+                engine.find("needle", false, false, false).unwrap()["resultCount"],
+                4000
+            );
+        }
+        eprintln!(
+            "backend search: rows={rows} first_us={} navigation_20_us={}",
+            first_time.as_micros(),
+            start.elapsed().as_micros()
+        );
+    }
+
+    #[test]
+    #[ignore = "manual backend performance measurement"]
+    fn backend_perf_native_dirty_frames() {
+        for delta in [false, true] {
+            let mut engine = engine(120);
+            engine.terminal.resize(120, 40, 9, 20).unwrap();
+            engine.write(&b"synthetic build output 0123456789\r\n".repeat(40), true);
+            engine.frame(0, vec![], false).unwrap();
+            let start = Instant::now();
+            let mut bytes = 0;
+            let mut changed_rows = 0;
+            for _ in 0..200 {
+                let effects = engine.write(b"\x1b[1;1Hx", true);
+                let frame = engine.frame(0, effects, delta).unwrap();
+                changed_rows += frame.lines.iter().filter(|r| r.is_some()).count();
+                bytes += serde_json::to_vec(&frame).unwrap().len();
+            }
+            eprintln!("backend native frames: delta={delta} frames=200 elapsed_us={} serialized_bytes={bytes} changed_rows={changed_rows}", start.elapsed().as_micros());
+        }
+    }
+
+    #[test]
     fn review_search_reopens_from_first_match_and_invalid_regex_clears_selection() {
         let mut engine = engine(80);
         engine.write(b"one one one", true);
