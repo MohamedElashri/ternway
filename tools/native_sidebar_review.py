@@ -7,6 +7,13 @@ import json
 import sys
 
 
+def painted_layout(g, test, description):
+    g['wait'](test, description)
+    # Native hit testing can lag a DOM grid change. Observe the new geometry,
+    # then let it reach the compositor before delivering the next click.
+    g['request']('POST', f"/session/{g['session']}/execute/async", {'script': "const done=arguments[arguments.length-1];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));", 'args': []}, idempotent=True)
+
+
 def prepare_restart(g):
     """Use the suite's existing coordinated restart to verify durable preferences."""
     path = g['config'] / 'config'
@@ -37,27 +44,42 @@ def seed_restart_layout(g, data_dir):
 
 
 def verify_restart(g):
-    assert g['read']("return document.querySelector('[data-sidebar=connections]')?.dataset.compact==='true';"), 'connection collapse preference lost on restart'
-    g['click']('[data-sidebar-toggle="connections"]')
-    g['wait'](lambda: g['read']("return Math.round(document.querySelector('[data-sidebar=connections]').getBoundingClientRect().width)===310;"), 'preferred connection width survives restart')
-    # A restored remote workspace remains dormant; selecting it must not start a shell.
-    handles = g['request']('GET', f"/session/{g['session']}/window/handles")
-    found = False
-    for handle in handles:
-        g['request']('POST', f"/session/{g['session']}/window", {'handle': handle})
-        if g['shown']('.workspace-tab:not(.workspace-tab-local)[data-workspace-tab]'):
-            g['click']('.workspace-tab:not(.workspace-tab-local)[data-workspace-tab]')
-            g['wait'](lambda: g['shown']('[data-sidebar="tools"]'), 'dormant remote workspace exposes its tool rail')
-            assert g['read']("return document.querySelector('[data-sidebar=tools]').dataset.compact==='true';"), 'tool collapse preference lost on restart'
-            g['click']('[data-sidebar-toggle="tools"]')
-            g['wait'](lambda: g['read']("return Math.round(document.querySelector('[data-sidebar=tools]').getBoundingClientRect().width)===205;"), 'preferred tool width survives restart')
-            ids = g['read']("return [...document.querySelectorAll('.term-tab')].map(el=>el.dataset.terminalTab);")
-            assert all(value == 'closed' for value in g['invoke']('terminal_activities', sessionIds=ids).values()), 'sidebar persistence check started a dormant process'
-            found = True
-            break
-    assert found, 'restored SSH workspace required to verify tool rail persistence'
-    g['screenshot']('sidebar-preferences-restored.png')
-    g['check']('independent sidebar widths and compact preferences survive coordinated quit and restart')
+    def desktop():
+        g['request']('POST', f"/session/{g['session']}/window/rect", {'width': 1200, 'height': 780})
+        painted_layout(g, lambda: g['read']("return Math.abs(innerWidth-1200)<=2;"), 'restored window has room for preferred sidebar widths')
+
+    try:
+        desktop()
+        assert g['read']("return document.querySelector('[data-sidebar=connections]')?.dataset.compact==='true';"), 'connection collapse preference lost on restart'
+        g['click']('[data-sidebar-toggle="connections"]')
+        painted_layout(g, lambda: g['read']("return Math.round(document.querySelector('[data-sidebar=connections]').getBoundingClientRect().width)===310;"), 'preferred connection width survives restart')
+        # A restored remote workspace remains dormant; selecting it must not start a shell.
+        handles = g['request']('GET', f"/session/{g['session']}/window/handles")
+        found = False
+        for handle in handles:
+            g['request']('POST', f"/session/{g['session']}/window", {'handle': handle})
+            desktop()
+            if g['shown']('.workspace-tab:not(.workspace-tab-local)[data-workspace-tab]'):
+                g['click']('.workspace-tab:not(.workspace-tab-local)[data-workspace-tab]')
+                painted_layout(g, lambda: g['shown']('[data-sidebar="tools"]'), 'dormant remote workspace tool rail reaches the native display')
+                assert g['read']("return document.querySelector('[data-sidebar=tools]').dataset.compact==='true';"), 'tool collapse preference lost on restart'
+                g['click']('[data-sidebar-toggle="tools"]')
+                painted_layout(g, lambda: g['read']("return document.querySelector('[data-sidebar=tools]').dataset.compact==='false' && Math.round(document.querySelector('[data-sidebar=tools]').getBoundingClientRect().width)===205;"), 'preferred tool width survives restart')
+                ids = g['read']("return [...document.querySelectorAll('.term-tab')].map(el=>el.dataset.terminalTab);")
+                assert all(value == 'closed' for value in g['invoke']('terminal_activities', sessionIds=ids).values()), 'sidebar persistence check started a dormant process'
+                found = True
+                break
+        assert found, 'restored SSH workspace required to verify tool rail persistence'
+        g['screenshot']('sidebar-preferences-restored.png')
+        g['check']('independent sidebar widths and compact preferences survive coordinated quit and restart')
+    except Exception:
+        try:
+            g['screenshot']('sidebar-restart-failure.png')
+            evidence = {'config': (g['config'] / 'config').read_text(), 'dom': g['read']("return {width:innerWidth,height:innerHeight,panels:[...document.querySelectorAll('[data-sidebar]')].map(el=>({side:el.dataset.sidebar,compact:el.dataset.compact,width:el.getBoundingClientRect().width})),error:document.querySelector('.app-toast')?.textContent};")}
+            (g['artifacts'] / 'sidebar-restart-failure.json').write_text(json.dumps(evidence, indent=2))
+        except Exception as capture_error:
+            print(f'Sidebar restart evidence observation: {capture_error}', file=sys.stderr)
+        raise
 
 
 def run(g):
@@ -92,12 +114,6 @@ def run(g):
 
     def retained():
         return g['read']("return window.__sidebarReviewMain===document.querySelector('.content-area') && window.__sidebarReviewTerminal===document.querySelector('.terminal-host:not([hidden])');")
-
-    def painted_layout(test, description):
-        g['wait'](test, description)
-        # Native hit testing can lag a DOM grid change. Observe the new geometry,
-        # then let it reach the compositor before delivering the next click.
-        g['request']('POST', f"/session/{g['session']}/execute/async", {'script': "const done=arguments[arguments.length-1];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));", 'args': []}, idempotent=True)
 
     try:
         if g['shown']('.modal'):
@@ -141,7 +157,7 @@ def run(g):
         observations = []
         for side in ['connections', 'tools']:
             g['click'](f'[data-sidebar-toggle="{side}"]')
-            painted_layout(lambda: compact(side) and width(side) == 48, f'{side} compact geometry reaches the native display')
+            painted_layout(g, lambda: compact(side) and width(side) == 48, f'{side} compact geometry reaches the native display')
             observations.append({'side': side, 'dom': g['read']("return [...document.querySelectorAll('[data-sidebar]')].map(el=>({side:el.dataset.sidebar,compact:el.dataset.compact,width:el.getBoundingClientRect().width}));"), 'config': path.read_text()})
         (g['artifacts'] / 'sidebar-toggle-observations.json').write_text(json.dumps(observations, indent=2))
         g['wait'](lambda: compact('connections') and compact('tools') and 'sidebar-collapsed = true' in path.read_text() and 'tools-sidebar-collapsed = true' in path.read_text(), 'independent compact choices persist')
@@ -153,12 +169,12 @@ def run(g):
         assert g['read']("return document.querySelector('[data-sidebar-resize=connections]').tabIndex===-1 && document.querySelector('[data-sidebar-toggle=connections]').getAttribute('aria-expanded')==='false';")
         g['screenshot']('sidebar-desktop-compact.png')
         g['click']('[data-sidebar-search]')
-        painted_layout(lambda: not compact('connections') and g['read']("return document.activeElement?.dataset.field==='server-search';"), 'compact search expands and focuses the connection search')
+        painted_layout(g, lambda: not compact('connections') and g['read']("return document.activeElement?.dataset.field==='server-search';"), 'compact search expands and focuses the connection search')
         assert compact('tools') and retained()
         g['click']('[data-sidebar-toggle="tools"]')
-        painted_layout(lambda: not compact('tools'), 'tools rail expands before resetting widths')
+        painted_layout(g, lambda: not compact('tools'), 'tools rail expands before resetting widths')
         g['click']('[data-sidebar-reset="connections"]')
-        painted_layout(lambda: width('connections') == 260, 'connection width resets before moving to the tool reset control')
+        painted_layout(g, lambda: width('connections') == 260, 'connection width resets before moving to the tool reset control')
         g['click']('[data-sidebar-reset="tools"]')
         g['wait'](lambda: width('connections') == 260 and width('tools') == 190 and 'sidebar-width = 260' in path.read_text() and 'tools-sidebar-width = 190' in path.read_text(), 'GUI width reset persists defaults')
         assert retained()
