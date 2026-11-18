@@ -35,10 +35,11 @@ library and pruned when profiles are removed.
 
 The native baseline on private X11 and Wayland displays confirmed the connection
 list bottleneck: a broad search over 1,000 profiles took approximately 0.5–0.7 s,
-mostly layout, with about 20,450 DOM nodes. Repeat native measurements are needed
-after integration; debug builds and software graphics are diagnostic rather than
-representative release hardware. Native smoke checks also cover terminal images,
-search, selection, resize, and retained terminal DOM.
+mostly layout, with about 20,450 DOM nodes. See `native-performance.md` for paired
+native measurements and the combined release PR for recorded results. Debug
+builds and software graphics are diagnostic rather than representative release
+hardware. Native smoke checks also cover terminal images, search, selection,
+resize, and retained terminal DOM.
 
 Ordinary path-link scanning and idle scheduling did not warrant changes in these
 fixtures. See `backend-performance.md` for terminal-search and database results.
