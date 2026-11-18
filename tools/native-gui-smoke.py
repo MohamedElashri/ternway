@@ -396,7 +396,7 @@ try:
         assert contrast >= 4.5, f"Dark import text contrast is too low: {contrast}"
         click('[data-form="ssh-import"] button[type="submit"]')
         wait(lambda: len(invoke("get_state")["servers"]) == 2, "duplicate-safe import")
-        wait(lambda: read("return document.querySelector('[data-import-error]')?.textContent.includes('Imported');"), "visible import completion")
+        wait(lambda: read("return document.querySelector('[data-import-error]')?.textContent.includes('ready in the library');"), "visible import completion")
         screenshot(f"ssh-import-dark-{attempt}.png")
         click('[data-action="close-modal"]')
     check("native SSH import excludes Git by default, stays readable and deduplicates repeat imports")

@@ -565,9 +565,6 @@ h1 { margin-bottom: 0; font: 600 35px/1.05 var(--font-display); letter-spacing: 
 .server-group[open] > summary::before { transform: rotate(90deg); }
 .group-count { margin-left: auto; font-variant-numeric: tabular-nums; opacity: .6; }
 .server-rail-foot { display: grid; gap: 8px; }
-.import-host { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); color: var(--ink); }
-.import-host span { display: grid; gap: 4px; }
-.import-host small { color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 [data-import-hosts] { max-height: 280px; overflow: auto; }
 .server-group-label { font-size: 10px; }
 .group-edit { width: 24px; height: 24px; opacity: .6; }
@@ -615,21 +612,6 @@ h1 { margin-bottom: 0; font: 600 35px/1.05 var(--font-display); letter-spacing: 
 .settings-reset .credential-warning { margin-top: 16px; }
 .settings-reset > p { color: var(--muted); font-size: 12px; line-height: 1.6; }
 .settings-footer { position: sticky; bottom: 0; z-index: 1; display: flex; justify-content: flex-end; padding: 14px 24px; border-top: 1px solid var(--line); background: var(--paper); }
-.modal-ssh-import { position: relative; animation: none; }
-.import-options { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 16px; }
-.import-source-actions, .import-selection-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.import-selection-actions output { color: var(--muted); font-size: 12px; line-height: 1.5; }
-.modal-ssh-import [data-import-hosts] { max-height: 320px; overflow-y: auto; }
-.modal-ssh-import .import-host[hidden] { display: none; }
-.modal-ssh-import .import-host:has(input:disabled) { opacity: .75; }
-.modal-ssh-import [data-import-hosts] { color: var(--ink); border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; background: var(--canvas); font-size: 12px; line-height: 1.6; }
-.import-host:last-child { border-bottom: 0; }
-.import-host strong { color: var(--ink); font-size: 13px; overflow-wrap: anywhere; }
-.import-host span { min-width: 0; }
-.import-host input { width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--accent); }
-.import-host:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
-.modal-ssh-import .field > small, .modal-ssh-import form > p { color: var(--muted); font-size: 12px; line-height: 1.6; }
-.modal-ssh-import [data-import-error]:not(:empty) { padding: 12px; color: var(--ink); background: var(--accent-soft); border-left: 3px solid var(--accent); font-size: 12px; line-height: 1.6; }
 @media (max-width: 650px) {
   .modal-settings { height: auto; max-height: calc(100vh - 24px); }
   .settings-layout { grid-template-columns: 1fr; }

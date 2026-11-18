@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1 - 2026-11-18
+
+- Rebuild SSH import around file selection and a clear review of connections to add or update.
+- Put new imports in the existing Default folder, with optional folder selection.
+- Refresh imported connections from edited SSH configs without duplicating them or changing their original connection type.
+- Preserve connection IDs, names, folders, tags, notes and applicable password providers during refresh.
+- Reset linked shared sessions on explicit refresh so subsequent connections use the current SSH config.
+
 ## 0.5.0 - 2026-11-18
 
 - Add GUI controls for terminal settings, profiles and includes, with config-file persistence and protection against external edit conflicts.
