@@ -31,18 +31,21 @@ export function sidebarWidths(preferences: SidebarLayoutPreferences, viewport: n
 
 export function sidebarControls(id: SidebarId): string {
   const label = id === "connections" ? "Connections" : "Connection tools";
-  return `<div class="sidebar-layout-controls"><button type="button" class="icon-button sidebar-toggle" data-sidebar-toggle="${id}" aria-controls="${id}-sidebar" aria-expanded="true" aria-label="Collapse ${label.toLowerCase()}" title="Collapse ${label.toLowerCase()}"><span aria-hidden="true">‹</span></button><span class="sidebar-layout-label">${label}</span><button type="button" class="icon-button sidebar-width-reset" data-sidebar-reset="${id}" aria-label="Reset ${label.toLowerCase()} width" title="Reset width"><span aria-hidden="true">↺</span></button></div>`;
+  return `<div class="sidebar-layout-controls"><button type="button" class="icon-button sidebar-toggle" data-sidebar-toggle="${id}" aria-controls="${id}-sidebar" aria-expanded="true" aria-label="Collapse ${label.toLowerCase()}" title="Collapse ${label.toLowerCase()}"><span aria-hidden="true">‹</span></button><span class="sidebar-layout-label">${label}</span><button type="button" class="icon-button sidebar-width-reset" data-sidebar-reset="${id}" aria-label="Reset ${label.toLowerCase()} width" title="Reset width"><span aria-hidden="true">↺</span></button><span class="sidebar-layout-constraint" id="${id}-sidebar-constraint"></span></div>`;
 }
 export function sidebarSeparator(id: SidebarId): string {
   const label = id === "connections" ? "Connections" : "Connection tools";
   return `<div class="sidebar-resizer" data-sidebar-resize="${id}" role="separator" tabindex="0" aria-orientation="vertical" aria-label="${label} width" aria-controls="${id}-sidebar" title="Drag to resize; arrow keys adjust width; double-click to reset"></div>`;
 }
 
-interface Gesture { id: SidebarId; original: SidebarPreference; start: number; width: number; pointer?: number }
-interface LayoutOptions { persist(key: string, value: string): Promise<void>; error(error: unknown): void }
+interface Gesture { id: SidebarId; original: SidebarPreference; start: number; width: number; maximum: number; pointer?: number }
+interface LayoutMetrics { widths: Record<SidebarId, number>; maxima: Record<SidebarId, number>; expandable: Record<SidebarId, boolean> }
+interface LayoutOptions { persist(key: string, value: string): Promise<void>; error(error: unknown): void; notice?(message: string): void }
+const constrainedReason = (id: SidebarId) => `Enlarge the window or reduce Interface scale to expand ${id === "connections" ? "connections" : "connection tools"}.`;
 export class SidebarLayout {
   preferences: SidebarLayoutPreferences = { connections: { width: 260, collapsed: false }, tools: { width: 190, collapsed: false } };
   private gesture?: Gesture;
+  private frame?: number;
   private durable: SidebarLayoutPreferences = structuredClone(this.preferences);
   private pending = new Map<string, { value: string; token: object }>();
   private root: HTMLElement;
@@ -69,7 +72,8 @@ export class SidebarLayout {
       if (!handle || event.button !== 0 || event.isPrimary === false || handle.tabIndex < 0) return;
       event.preventDefault(); this.cancel();
       const id = handle.dataset.sidebarResize as SidebarId;
-      this.gesture = { id, original: { ...this.preferences[id] }, start: event.clientX, width: this.widths()[id], pointer: event.pointerId };
+      const metrics = this.measure();
+      this.gesture = { id, original: { ...this.preferences[id] }, start: event.clientX, width: metrics.widths[id], maximum: metrics.maxima[id], pointer: event.pointerId };
       root.setPointerCapture(event.pointerId);
       root.dataset.sidebarResizing = "true";
       handle.focus({ preventScroll: true });
@@ -77,7 +81,7 @@ export class SidebarLayout {
     root.addEventListener("pointermove", event => {
       const gesture = this.gesture;
       if (gesture?.pointer !== event.pointerId) return;
-      event.preventDefault(); this.resize(gesture.width + event.clientX - gesture.start);
+      event.preventDefault(); this.resize(gesture.width + event.clientX - gesture.start, true);
     });
     view.addEventListener("pointerup", event => { if (this.gesture?.pointer === event.pointerId) this.finish(); }, true);
     view.addEventListener("pointercancel", event => { if (this.gesture?.pointer === event.pointerId) this.cancel(); }, true);
@@ -88,9 +92,10 @@ export class SidebarLayout {
       if (!handle || handle.tabIndex < 0 || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) || event.altKey || event.ctrlKey || event.metaKey) return;
       event.preventDefault(); event.stopImmediatePropagation();
       const id = handle.dataset.sidebarResize as SidebarId;
-      if (!this.gesture) this.gesture = { id, original: { ...this.preferences[id] }, start: 0, width: this.widths()[id] };
-      const width = this.widths()[id];
-      this.resize(event.key === "Home" ? SIDEBAR_LIMITS[id].min : event.key === "End" ? this.maximum(id) : width + (event.key === "ArrowRight" ? 1 : -1) * (event.shiftKey ? 40 : 10));
+      const metrics = this.measure();
+      if (!this.gesture) this.gesture = { id, original: { ...this.preferences[id] }, start: 0, width: metrics.widths[id], maximum: metrics.maxima[id] };
+      const width = metrics.widths[id];
+      this.resize(event.key === "Home" ? SIDEBAR_LIMITS[id].min : event.key === "End" ? this.gesture.maximum : width + (event.key === "ArrowRight" ? 1 : -1) * (event.shiftKey ? 40 : 10));
     }, true);
     root.addEventListener("keyup", event => { if (this.gesture?.pointer === undefined && ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) this.finish(); });
     root.addEventListener("focusout", () => { if (this.gesture?.pointer === undefined) this.cancel(); });
@@ -107,16 +112,32 @@ export class SidebarLayout {
     }
     this.sync();
   }
-  private viewport(): number { return this.root.querySelector<HTMLElement>(".app-shell")?.clientWidth || this.root.clientWidth || this.root.ownerDocument.defaultView!.innerWidth; }
-  private widths(): Record<SidebarId, number> { return sidebarWidths(this.preferences, this.viewport(), Boolean(this.root.querySelector(".sidebar"))); }
-  private maximum(id: SidebarId): number {
-    const other = id === "connections" ? "tools" : "connections";
-    return Math.max(SIDEBAR_LIMITS[id].min, Math.min(SIDEBAR_LIMITS[id].max, this.viewport() - MIN_WORKSPACE_WIDTH - this.widths()[other]));
+  /** Take the only geometry measurement before changing any style or DOM attribute. */
+  private measure(): LayoutMetrics {
+    const viewport = this.root.querySelector<HTMLElement>(".app-shell")?.clientWidth || this.root.clientWidth || this.root.ownerDocument.defaultView!.innerWidth;
+    const tools = Boolean(this.root.querySelector(".sidebar"));
+    const widths = sidebarWidths(this.preferences, viewport, tools);
+    const maxima = {} as Record<SidebarId, number>, expandable = {} as Record<SidebarId, boolean>;
+    for (const id of ids) {
+      const other = id === "connections" ? "tools" : "connections";
+      maxima[id] = Math.max(SIDEBAR_LIMITS[id].min, Math.min(SIDEBAR_LIMITS[id].max, viewport - MIN_WORKSPACE_WIDTH - widths[other]));
+      expandable[id] = sidebarWidths({ ...this.preferences, [id]: { ...this.preferences[id], collapsed: false } }, viewport, tools)[id] !== COMPACT_SIDEBAR_WIDTH;
+    }
+    return { widths, maxima, expandable };
+  }
+  private queueSync(): void {
+    if (this.frame !== undefined) return;
+    this.frame = this.root.ownerDocument.defaultView!.requestAnimationFrame(() => { this.frame = undefined; this.sync(); });
+  }
+  private discardFrame(): void {
+    if (this.frame === undefined) return;
+    this.root.ownerDocument.defaultView!.cancelAnimationFrame(this.frame);
+    this.frame = undefined;
   }
   sync(): void {
     const shell = this.root.querySelector<HTMLElement>(".app-shell");
     if (!shell) return;
-    const widths = this.widths();
+    const { widths, maxima, expandable } = this.measure();
     shell.style.setProperty("--connections-width", `${widths.connections}px`);
     shell.style.setProperty("--tools-width", `${widths.tools}px`);
     for (const id of ids) {
@@ -131,13 +152,23 @@ export class SidebarLayout {
       const label = id === "connections" ? "connections" : "connection tools";
       toggle.setAttribute("aria-expanded", String(!compact));
       toggle.setAttribute("aria-label", `${compact ? "Expand" : "Collapse"} ${label}`);
-      toggle.title = `${compact ? "Expand" : "Collapse"} ${label}`;
+      toggle.title = compact && !expandable[id] ? constrainedReason(id) : `${compact ? "Expand" : "Collapse"} ${label}`;
+      toggle.setAttribute("aria-disabled", String(compact && !expandable[id]));
+      toggle.setAttribute("aria-describedby", `${id}-sidebar-constraint`);
+      const reason = panel.querySelector<HTMLElement>(".sidebar-layout-constraint")!;
+      reason.textContent = compact && !expandable[id] ? constrainedReason(id) : "";
+      const search = panel.querySelector<HTMLElement>("[data-sidebar-search]");
+      if (search) {
+        search.setAttribute("aria-disabled", String(!expandable[id]));
+        search.setAttribute("aria-describedby", `${id}-sidebar-constraint`);
+        search.title = expandable[id] ? "Search connections" : constrainedReason(id);
+      }
       toggle.querySelector("span")!.textContent = compact ? "›" : "‹";
       const handle = panel.querySelector<HTMLElement>("[data-sidebar-resize]")!;
       handle.tabIndex = compact ? -1 : 0;
       handle.hidden = compact;
       handle.setAttribute("aria-valuemin", String(SIDEBAR_LIMITS[id].min));
-      handle.setAttribute("aria-valuemax", String(this.maximum(id)));
+      handle.setAttribute("aria-valuemax", String(maxima[id]));
       handle.setAttribute("aria-valuenow", String(widths[id]));
       handle.setAttribute("aria-valuetext", `${widths[id]} pixels`);
       if (active && panel.contains(active) && (active.closest("[hidden]") || (compact && active.closest("[data-sidebar-reset]")))) toggle.focus({ preventScroll: true });
@@ -145,24 +176,31 @@ export class SidebarLayout {
   }
   toggle(id: SidebarId): void {
     this.cancel();
-    // An automatically compacted rail can still be explicitly expanded when room permits.
-    this.preferences[id].collapsed = this.widths()[id] !== COMPACT_SIDEBAR_WIDTH;
+    const metrics = this.measure();
+    if (metrics.widths[id] === COMPACT_SIDEBAR_WIDTH && !metrics.expandable[id]) { this.options.notice?.(constrainedReason(id)); return; }
+    this.preferences[id].collapsed = metrics.widths[id] !== COMPACT_SIDEBAR_WIDTH;
     this.sync(); this.save(id, "collapsed", String(this.preferences[id].collapsed));
   }
   search(): void {
+    this.cancel();
+    if (!this.measure().expandable.connections) {
+      this.root.querySelector<HTMLElement>("[data-sidebar-search]")?.focus({ preventScroll: true });
+      this.options.notice?.(constrainedReason("connections"));
+      return;
+    }
     if (this.preferences.connections.collapsed) { this.preferences.connections.collapsed = false; this.save("connections", "collapsed", "false"); }
     this.sync();
     this.root.querySelector<HTMLInputElement>('[data-field="server-search"]')?.focus({ preventScroll: true });
   }
   reset(id: SidebarId): void { this.cancel(); this.preferences[id].width = SIDEBAR_LIMITS[id].default; this.sync(); this.save(id, "width", String(this.preferences[id].width)); }
-  private resize(width: number): void { const id = this.gesture!.id; this.preferences[id].width = Math.round(Math.max(SIDEBAR_LIMITS[id].min, Math.min(this.maximum(id), width))); this.sync(); }
+  private resize(width: number, deferred = false): void { const gesture = this.gesture!; this.preferences[gesture.id].width = Math.round(Math.max(SIDEBAR_LIMITS[gesture.id].min, Math.min(gesture.maximum, width))); if (deferred) this.queueSync(); else this.sync(); }
   private finish(): void {
     const gesture = this.gesture;
     if (!gesture) return;
-    this.release();
+    this.discardFrame(); this.sync(); this.release();
     if (this.preferences[gesture.id].width !== gesture.original.width) this.save(gesture.id, "width", String(this.preferences[gesture.id].width));
   }
-  cancel(): void { const gesture = this.gesture; if (!gesture) return; this.preferences[gesture.id] = gesture.original; this.release(); this.sync(); }
+  cancel(): void { this.discardFrame(); const gesture = this.gesture; if (!gesture) return; this.preferences[gesture.id] = gesture.original; this.release(); this.sync(); }
   private release(): void { const gesture = this.gesture; this.gesture = undefined; delete this.root.dataset.sidebarResizing; if (gesture?.pointer !== undefined && this.root.hasPointerCapture(gesture.pointer)) this.root.releasePointerCapture(gesture.pointer); }
   private save(id: SidebarId, property: "width" | "collapsed", value: string): void {
     const key = preferenceKey(id, property), token = {};

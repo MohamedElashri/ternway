@@ -118,7 +118,7 @@ async function installEventListeners(): Promise<void> {
   }));
 }
 
-if (!quickMode) installSidebarLayout(root, { persist: persistWorkspaceSetting, error: setError });
+if (!quickMode) installSidebarLayout(root, { persist: persistWorkspaceSetting, error: setError, notice: message => showToast(message, "info") });
 installConnectionSidebar(root);
 installTabNavigation(root, "workspace", { select: selectWorkspaceTab, close: closeWorkspaceTab, rename: renameWorkspaceTab });
 installTabNavigation(root, "terminal", { select: id => { const group = state.terminalGroups.find(group => group.id === id); if (group) { state.activeTerminalTabId = group.focusedId; render(); } }, close: closeTerminalGroup, rename: renameTab });

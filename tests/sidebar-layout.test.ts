@@ -10,11 +10,16 @@ const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 function fixture(persist?: (key: string, value: string) => Promise<void>) {
   const dom = new JSDOM(`<div id="app"><div class="app-shell"><aside class="server-rail" data-sidebar="connections">${sidebarControls('connections')}<div data-sidebar-expanded><input data-field="server-search"/><div class="server-list"><button>Server</button></div></div><div data-sidebar-compact hidden><button data-sidebar-search>Search</button><button data-action="add-server">New connection</button><button>Settings</button></div>${sidebarSeparator('connections')}</aside><aside class="sidebar" data-sidebar="tools">${sidebarControls('tools')}<div class="nav-section"><button data-view="terminal" aria-label="Terminal">Terminal</button></div>${sidebarSeparator('tools')}</aside><main class="content-area"><div class="terminal-host"><canvas></canvas></div><input value="draft"/></main></div></div>`);
   const root = dom.window.document.querySelector<HTMLElement>('#app')!;
-  let viewport = 1200, capture: number | undefined;
-  Object.defineProperty(root.querySelector('.app-shell'), 'clientWidth', { get: () => viewport });
+  let viewport = 1200, capture: number | undefined, frameId = 0;
+  const frames = new Map<number, FrameRequestCallback>(), operations: string[] = [];
+  dom.window.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
+  dom.window.cancelAnimationFrame = id => { frames.delete(id); };
+  Object.defineProperty(root.querySelector('.app-shell'), 'clientWidth', { get: () => { operations.push('read'); return viewport; } });
+  const style = root.querySelector<HTMLElement>('.app-shell')!.style, setProperty = style.setProperty.bind(style);
+  style.setProperty = (key, value, priority) => { operations.push('write'); setProperty(key, value, priority); };
   root.setPointerCapture = id => { capture = id; }; root.hasPointerCapture = id => capture === id; root.releasePointerCapture = () => { capture = undefined; };
-  const writes: [string, string][] = [], errors: unknown[] = [];
-  const layout = new SidebarLayout(root, { persist: async (key, value) => { writes.push([key, value]); await persist?.(key, value); }, error: error => { errors.push(error); } });
+  const writes: [string, string][] = [], errors: unknown[] = [], notices: string[] = [];
+  const layout = new SidebarLayout(root, { persist: async (key, value) => { writes.push([key, value]); await persist?.(key, value); }, error: error => { errors.push(error); }, notice: message => { notices.push(message); } });
   layout.setConfig(defaults);
   const handle = (id = 'connections') => root.querySelector<HTMLElement>(`[data-sidebar-resize="${id}"]`)!;
   const pointer = (name: string, target: Element | Window, x: number, id = 1) => {
@@ -23,7 +28,7 @@ function fixture(persist?: (key: string, value: string) => Promise<void>) {
   };
   const key = (name: string, value: string, id = 'connections') => handle(id).dispatchEvent(new dom.window.KeyboardEvent(name, { key: value, bubbles: true, cancelable: true }));
   const click = (selector: string) => root.querySelector<HTMLElement>(selector)!.click();
-  return { dom, root, layout, writes, errors, pointer, key, click, handle, capture: () => capture, viewport: (value: number) => { viewport = value; layout.sync(); } };
+  return { dom, root, layout, writes, errors, notices, operations, frames, flush: () => { const pending = [...frames.values()]; frames.clear(); for (const callback of pending) callback(0); }, pointer, key, click, handle, capture: () => capture, viewport: (value: number) => { viewport = value; layout.sync(); } };
 }
 
 test('independent collapse/expand retains content DOM, draft, scroll and accessible compact actions', async () => {
@@ -54,7 +59,7 @@ test('pointer resizing writes once on release, keeps capture on stable root, and
   const f = fixture(), terminal = f.root.querySelector('.terminal-host');
   f.pointer('pointerdown', f.handle(), 260); f.pointer('pointermove', f.root, 320); f.pointer('pointermove', f.root, 350);
   assert.equal(f.capture(), 1); assert.equal(f.layout.preferences.connections.width, 350); assert.deepEqual(f.writes, []);
-  assert.equal(f.handle().getAttribute('aria-valuenow'), '350'); assert.equal(f.handle().getAttribute('aria-valuemax'), '600');
+  f.flush(); assert.equal(f.handle().getAttribute('aria-valuenow'), '350'); assert.equal(f.handle().getAttribute('aria-valuemax'), '600');
   f.pointer('pointerup', f.dom.window, 350); f.pointer('pointerup', f.dom.window, 350);
   assert.deepEqual(f.writes, [['sidebar-width', '350']]); assert.equal(f.capture(), undefined);
   assert.equal(f.root.querySelector('.terminal-host'), terminal);
@@ -130,4 +135,37 @@ test('sidebar GUI values round-trip to the main config and are disabled in profi
   const dom = new JSDOM(renderConfigFields(parsed.config, undefined, true));
   for (const [key] of fields) assert.equal(dom.window.document.querySelector<HTMLInputElement>(`[data-config-key="${key}"]`)!.disabled, true);
   dom.window.close();
+});
+
+
+test('pointer moves coalesce into one animation frame with all geometry reads before writes; release flushes the newest delta', () => {
+  const f = fixture();
+  f.pointer('pointerdown', f.handle(), 260); f.operations.length = 0;
+  for (const x of [270, 290, 320]) f.pointer('pointermove', f.root, x);
+  assert.equal(f.frames.size, 1); assert.deepEqual(f.operations, [], 'pointer movement performs no immediate layout reads or writes');
+  f.flush();
+  assert.deepEqual(f.operations, ['read', 'write', 'write'], 'one viewport snapshot precedes every track write');
+  assert.equal(f.handle().getAttribute('aria-valuenow'), '320');
+  f.operations.length = 0;
+  f.pointer('pointermove', f.root, 350); assert.equal(f.frames.size, 1);
+  f.pointer('pointerup', f.root, 350);
+  assert.equal(f.frames.size, 0); assert.equal(f.handle().getAttribute('aria-valuenow'), '350');
+  assert.deepEqual(f.writes, [['sidebar-width', '350']]);
+  assert.deepEqual(f.operations, ['read', 'write', 'write']); f.dom.window.close();
+});
+
+test('320px CSS viewport explains unavailable expansion/search, avoids hidden focus, and recovers when widened', () => {
+  const f = fixture(); f.viewport(320);
+  const toggle = f.root.querySelector<HTMLElement>('[data-sidebar-toggle="connections"]')!, search = f.root.querySelector<HTMLElement>('[data-sidebar-search]')!;
+  assert.equal(toggle.getAttribute('aria-disabled'), 'true'); assert.equal(search.getAttribute('aria-disabled'), 'true');
+  const reasonId = toggle.getAttribute('aria-describedby')!;
+  assert.match(f.dom.window.document.getElementById(reasonId)!.textContent!, /Enlarge the window or reduce Interface scale/);
+  f.click('[data-sidebar-toggle="connections"]'); f.layout.search();
+  assert.equal(f.dom.window.document.activeElement, search);
+  assert.equal(f.root.querySelector<HTMLElement>('[data-sidebar-expanded]')!.hidden, true);
+  assert.equal(f.notices.length, 2); assert.deepEqual(f.writes, [], 'blocked actions never persist a no-op');
+  f.viewport(1200);
+  assert.equal(toggle.getAttribute('aria-disabled'), 'false'); assert.equal(search.getAttribute('aria-disabled'), 'false');
+  f.layout.search(); assert.equal(f.dom.window.document.activeElement, f.root.querySelector('[data-field="server-search"]'));
+  f.dom.window.close();
 });
