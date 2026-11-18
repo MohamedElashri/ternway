@@ -78,3 +78,5 @@
   .import-destination { flex-basis: 100%; }
   .import-flow .modal-actions-right { margin-left: auto; }
 }
+/* The destination lives in the fixed action bar; its menu must open into the dialog. */
+.import-destination .custom-select-options { top: auto; bottom: calc(100% + 6px); max-height: min(220px, 45vh); }
