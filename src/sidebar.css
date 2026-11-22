@@ -1,5 +1,4 @@
 /* Connection organization stays in the library rather than separate dialogs. */
-.connection-drag-hint { color: var(--faint); font-size: 10px; font-weight: 400; }
 .connection-folder > .server-group-label { min-height: 36px; display: flex; gap: 5px; padding: 2px 3px; color: var(--muted); letter-spacing: normal; text-transform: none; user-select: none; touch-action: none; }
 .connection-folder > .server-group-label::before { content: none; }
 .folder-chevron { display: grid; place-items: center; flex: 0 0 12px; }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2 - 2026-11-22
+
+- Refresh the workspace and Settings on macOS and Linux, with a new Ternway icon.
+- Fix duplicate macOS window controls and add Command-comma for Settings.
+- Improve contrast in all built-in light terminal themes and make scrollback search easier to read.
+
 ## 0.5.1 - 2026-11-18
 
 - Rebuild SSH import around file selection and a clear review of connections to add or update.

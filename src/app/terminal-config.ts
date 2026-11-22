@@ -150,7 +150,7 @@ async function readTerminalConfig(announce = false): Promise<void> {
   applyTerminalAppearance();
   if (!quickMode) {
     const appearance = terminalAppearance();
-    await applyWindowConfig(config, appearance.fontSize, appearance.fontFamily, state.darkMode).catch(error => state.terminalConfig.errors.push(errorText(error)));
+    await applyWindowConfig(config, appearance.fontSize, appearance.fontFamily, state.darkMode, platform !== "windows").catch(error => state.terminalConfig.errors.push(errorText(error)));
     if (version !== configLoadVersion) return;
     configureAutomaticUpdates(config);
   }

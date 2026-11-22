@@ -3,5 +3,18 @@ import { escapeHtml } from "./format.ts";
 import { icon } from "../icons.ts";
 
 export function renderThemePicker(selectedId: string): string {
-  return `<div class="theme-picker"><div class="settings-row-copy"><h4>Color theme</h4><p>Choose a palette for the workspace and terminal. Terminal config colors take priority.</p></div><div class="theme-grid" role="group" aria-label="Color theme">${THEME_PRESETS.map(theme => `<button type="button" class="theme-card" data-action="select-color-theme" data-theme-id="${theme.id}" aria-pressed="${theme.id === selectedId}" aria-label="${theme.name}" style="--preview-bg:${theme.chrome.canvas};--preview-sidebar:${theme.chrome["canvas-deep"]};--preview-paper:${theme.chrome.paper};--preview-ink:${theme.chrome.ink};--preview-muted:${theme.chrome.muted};--preview-accent:${theme.chrome["accent-strong"]};--preview-line:${theme.chrome.line}"><span class="theme-card-preview" aria-hidden="true"><span class="theme-preview-sidebar"><i></i><i></i><i></i></span><span class="theme-preview-terminal"><span><b>~</b> $ <span>ssh server</span></span><span class="theme-swatches">${["red","green","yellow","blue","magenta","cyan"].map(color => `<i style="background:${escapeHtml(theme.terminal[color])}"></i>`).join("")}</span></span></span><span class="theme-card-label"><strong>${theme.name}</strong>${theme.id === selectedId ? icon("check") : `<small>${theme.mode === "dark" ? "Dark" : "Light"}</small>`}</span><span class="theme-card-description">${theme.description}</span></button>`).join("")}</div></div>`;
+  return `<section class="theme-picker" aria-labelledby="theme-picker-title">
+    <div class="settings-row-copy"><h4 id="theme-picker-title">Color theme</h4><p>Applies to the workspace and the default terminal palette. Terminal config colors take priority.</p></div>
+    <div class="theme-grid">
+      ${(["light", "dark"] as const).map(mode => `<div class="theme-options" role="group" aria-label="${mode === "light" ? "Light themes" : "Dark themes"}">
+        <h5>${mode === "light" ? "Light" : "Dark"}</h5>
+        ${THEME_PRESETS.filter(theme => theme.mode === mode).map(({ id, name, terminal }) => `<button type="button" class="theme-card" data-action="select-color-theme" data-theme-id="${id}" aria-pressed="${id === selectedId}">
+          <span class="theme-card-label">${name}${id === selectedId ? icon("check") : ""}</span>
+          <span class="theme-card-preview" aria-hidden="true" style="--preview-bg:${escapeHtml(terminal.background)};--preview-ink:${escapeHtml(terminal.foreground)};--preview-prompt:${escapeHtml(terminal.brightBlue)}">
+            <span><b>$</b> ssh server</span><span class="theme-swatches">${["red", "green", "yellow", "blue", "magenta", "cyan"].map(color => `<i style="background:${escapeHtml(terminal[color])}"></i>`).join("")}</span>
+          </span>
+        </button>`).join("")}
+      </div>`).join("")}
+    </div>
+  </section>`;
 }

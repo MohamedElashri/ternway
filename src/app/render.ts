@@ -79,6 +79,7 @@ export function render(): void {
   restoreConnectionForm(root, previousImportForm);
   const nextSettings = root.querySelector<HTMLElement>(".settings-content[data-settings-page-panel]");
   if (nextSettings && settingsScroll && settingsScroll.page === nextSettings.dataset.settingsPagePanel) nextSettings.scrollTop = settingsScroll.top;
+  root.querySelector(".settings-nav [aria-current='page']")?.scrollIntoView({ block: "nearest", inline: "nearest" });
   const nextContent = root.querySelector<HTMLElement>(".dock-main") ?? root.querySelector<HTMLElement>(".content-area");
   const nextServerList = root.querySelector<HTMLElement>(".server-list");
   const nextNavigation = root.querySelector<HTMLElement>(".nav-section");
@@ -234,20 +235,19 @@ export function renderServerRail(): string {
       <button class="icon-button" type="button" data-action="credential-settings" aria-label="Settings" title="Settings">${icon("settings")}</button>
     </div>
     <div class="server-rail-flyout" data-sidebar-expanded>
-      ${platform === "linux" ? "" : `<div class="rail-brand"><span class="brand-mark">${icon("logo")}</span><span class="rail-brand-name">Ternway</span></div>`}
       <div class="sidebar-section server-section">
-        <div class="section-label-row"><span class="section-label">Connections</span><span class="connection-drag-hint" title="Drag connections to reorder or move between folders. Alt+↑/↓ moves the focused item.">Drag to organize</span></div>
         <label class="sidebar-search"><span>${icon("search")}</span><input data-field="server-search" value="${escapeHtml(state.serverQuery)}" placeholder="Search connections…" aria-label="Search connections and notes"/><kbd>${platform === "macos" ? "⌘" : "Ctrl"} K</kbd></label>
         <div class="server-list">
           ${servers.length || !query ? renderServerGroups(servers) : `<div class="server-empty">${query ? "No matching connections" : "Add your first SSH connection"}</div>`}
         </div>
       </div>
-      <div class="rail-utilities">
-        <button class="icon-button" data-action="credential-settings" aria-label="Settings" title="Settings">${icon("settings")}</button>
-        <button class="icon-button" data-action="theme" aria-label="${state.darkMode ? "Switch to light appearance" : "Switch to dark appearance"}" title="${state.darkMode ? "Switch to light appearance" : "Switch to dark appearance"}">${icon(state.darkMode ? "sun" : "moon")}</button>
-      </div>
       <div class="server-rail-foot">
-        <button class="button button-quiet library-add" data-action="import-ssh-config">Import SSH config</button><button class="button button-primary library-add" data-action="add-server">${icon("plus")} New connection</button>
+        <button class="button button-quiet library-add" data-action="add-server">${icon("plus")} New connection</button>
+        <div class="rail-utilities">
+          <button class="icon-button" data-action="credential-settings" aria-label="Settings" title="Settings">${icon("settings")}</button>
+          <button class="icon-button" data-action="theme" aria-label="${state.darkMode ? "Switch to light appearance" : "Switch to dark appearance"}" title="${state.darkMode ? "Switch to light appearance" : "Switch to dark appearance"}">${icon(state.darkMode ? "sun" : "moon")}</button>
+          <button class="icon-button" data-action="import-ssh-config" aria-label="Import SSH config" title="Import SSH config">${icon("download")}</button>
+        </div>
       </div>
     </div>
     ${sidebarSeparator("connections")}
@@ -335,27 +335,27 @@ export function renderConnectedContent(): string {
   const server = activeServer();
   if (!server) return renderWelcome();
   if (state.activeView === "terminal") return renderView();
-  const titles: Record<Exclude<View, "terminal">, [string, string]> = {
-    dashboard: ["Overview", "A clear read on how this machine is doing."],
-    processes: ["Processes", "See what is using the machine right now."],
-    services: ["Systemd services", "Keep systemd units healthy and moving."],
-    files: ["Files", "Browse, edit, and move files over SFTP."],
-    disk: ["Disk usage", "Find what is consuming space before it becomes an outage."],
-    docker: ["Container platform", "Runtime resources and Compose applications in one place."],
-    logs: ["System logs", "The recent story behind what is happening."],
-    network: ["Network sockets", "Listening ports and active connections."],
-    cron: ["Cron jobs", "Scheduled commands for this server."],
-    packages: ["Packages", "Installed software and pending APT upgrades."],
-    accounts: ["Users & groups", "Linux identities, access, and membership."],
-    administration: ["Administration", "Firewall, SSH access, security posture, and maintenance."],
-    commands: ["Saved commands", "Reusable commands for this server or your whole workspace."],
-    tunnels: ["SSH tunnels", "Local, remote, and SOCKS5 forwarding managed by Ternway."],
+  const titles: Record<Exclude<View, "terminal">, string> = {
+    dashboard: "Overview",
+    processes: "Processes",
+    services: "Systemd services",
+    files: "Files",
+    disk: "Disk usage",
+    docker: "Container platform",
+    logs: "System logs",
+    network: "Network sockets",
+    cron: "Cron jobs",
+    packages: "Packages",
+    accounts: "Users & groups",
+    administration: "Administration",
+    commands: "Saved commands",
+    tunnels: "SSH tunnels",
   };
-  const [title, subtitle] = titles[state.activeView];
+  const title = titles[state.activeView];
   const snapshotNotice = state.activeView === "dashboard"
-    ? `<span class="overview-snapshot-note">${icon("info")} Snapshot metrics · not live</span>`
+    ? `<span class="overview-snapshot-note">${icon("info")} Snapshot metrics</span>`
     : "";
-  return `<div class="page-head"><div><div class="eyebrow">${escapeHtml(server.name)} <span class="eyebrow-separator">/</span> ${title}</div><h1>${title}</h1><p>${escapeHtml(subtitle)}</p></div><div class="page-actions">${snapshotNotice}<button class="button button-quiet ${dockShown() ? "active" : ""}" data-action="toggle-dock" title="Terminals beside this view (Ctrl+\`)">${icon("terminalSmall")} Terminal</button><button class="button button-quiet" data-action="refresh">${icon("refresh")} Refresh</button></div></div>${renderView()}`;
+  return `<div class="page-head"><div><h1>${title}</h1><p>${escapeHtml(server.name)}</p></div><div class="page-actions">${snapshotNotice}<button class="button button-quiet ${dockShown() ? "active" : ""}" data-action="toggle-dock" aria-pressed="${dockShown()}" title="Show or hide the terminal dock">${icon("terminalSmall")} Terminal</button><button class="button button-quiet" data-action="refresh">${icon("refresh")} Refresh</button></div></div>${renderView()}`;
 }
 
 export function renderView(): string {
@@ -372,7 +372,7 @@ export function renderConnectPrompt(): string {
   const route = bastion
     ? ` The connection routes through ${escapeHtml(profileRouteLabel(bastion))}.`
     : "";
-  return `<div class="connect-prompt"><div class="connect-prompt-art">${icon("shield")}</div><div class="eyebrow">Connection is idle</div><h2>Ready when you are.</h2><p>Choose Connect to open an SSH session with ${escapeHtml(server.host)}. Ternway reads saved credentials only when connecting.${route}</p><button class="button button-primary" data-action="connect">${icon("play")} Connect to ${escapeHtml(server.name)}</button></div>`;
+  return `<div class="connect-prompt"><div class="connect-prompt-art">${icon("terminalSmall")}</div><h2>Connect to ${escapeHtml(server.name)}</h2><p>${escapeHtml(server.host)}${route}</p><button class="button button-primary" data-action="connect">${icon("play")} Connect</button></div>`;
 }
 
 export function renderViewBody(): string {

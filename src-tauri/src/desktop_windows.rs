@@ -205,7 +205,7 @@ fn create(app: &AppHandle, label: &str, layout: Option<&str>) -> Result<(), Stri
         .title("Ternway")
         .inner_size(1200., 780.)
         .min_inner_size(640., 480.)
-        .decorations(cfg!(target_os = "linux"))
+        .decorations(cfg!(any(target_os = "linux", target_os = "macos")))
         .center()
         .visible(false)
         .build()

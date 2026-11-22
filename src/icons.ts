@@ -1,6 +1,6 @@
 const paths: Record<string, string> = {
   sort: '<path d="M8 4v16m-4-4 4 4 4-4M16 4v16m-4-12 4-4 4 4"/>',
-  logo: '<path d="M3 6h5.8L12 8.3 9 10.5H6.4z" fill="currentColor" stroke="none"/><path d="M15 6h6l-3.4 3.8-5.6 3v4.6l-3 2.9v-8.8z" fill="currentColor" stroke="none"/>',
+  logo: '<path d="M11.8 12.4c.9-3.1 3.7-5.9 7.3-7.4-.7 2.5-2.4 5.1-4.5 6.7l1.6-.3c1.1-.2 2.1.3 2.6 1.1l1 .6-1.3.3-3.2 1.1c-.9.3-1.7.9-2.2 1.7l-1.9 3.2.1-2.6-2.8 1.9 1.5-3.2c-2.8-1.1-4.2-4-4.7-7.3 2.1 2.5 3.9 3.8 6.5 4.2Z" fill="currentColor" stroke="none"/>',
   dashboard: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   terminal: '<path d="m4 5 6 6-6 6M13 17h7"/>',
   processes: '<path d="M4 19V5m0 14h16M8 16v-5m4 5V7m4 9v-8"/>',

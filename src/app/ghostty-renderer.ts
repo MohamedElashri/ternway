@@ -65,7 +65,7 @@ export function drawGhostty(canvas: HTMLCanvasElement, frame: GhosttyFrame, font
       // Deep-background Kitty images remain visible through default cells.
       // Explicit backgrounds (even one matching the default), selection and search cover them.
       if (!(cell.flags & (128 | 256)) && !match && cell.bg === frame.background) continue;
-      context.fillStyle = cell.flags & 128 ? selectionBackground : match ? "#44475a" : cell.bg;
+      context.fillStyle = cell.flags & 128 ? selectionBackground : match ? frame.foreground : cell.bg;
       context.fillRect(cell.x * cellWidth, y * cellHeight, cell.width * cellWidth, cellHeight);
     }
   }
@@ -73,13 +73,18 @@ export function drawGhostty(canvas: HTMLCanvasElement, frame: GhosttyFrame, font
   context.textBaseline = "alphabetic";
   for (const [y, row] of frame.lines.entries()) {
     if (paintRows && !paintRows.has(y)) continue;
+    const ranges = search.get(y) ?? [];
+    let range = 0;
     for (const cell of row) {
       const left = cell.x * cellWidth; const top = y * cellHeight; const w = cell.width * cellWidth;
+      while (range < ranges.length && ranges[range][1] <= cell.x) range++;
+      const selected = Boolean(cell.flags & 128);
+      const match = !selected && range < ranges.length && cell.x >= ranges[range][0];
       const highlight = highlights.get(frame.rowIds[y])?.find(item => cell.x >= item.start && cell.x < item.end);
-      if (highlight && !(cell.flags & 128)) { context.fillStyle = highlight.color; context.fillRect(left, top, w, cellHeight); }
+      if (highlight && !selected && !match) { context.fillStyle = highlight.color; context.fillRect(left, top, w, cellHeight); }
       if (cell.flags & 8) continue;
-      context.globalAlpha = cell.flags & 4 ? 0.5 : 1;
-      context.fillStyle = cell.flags & 128 && selectionForeground ? selectionForeground : cell.fg;
+      context.globalAlpha = !selected && !match && cell.flags & 4 ? 0.5 : 1;
+      context.fillStyle = match ? frame.background : selected && selectionForeground ? selectionForeground : cell.fg;
       if (cell.text !== " ") {
         const font = `${cell.flags & 2 ? "italic " : ""}${cell.flags & 1 ? "bold " : ""}${fontSize}px ${fontFamily}`;
         if (context.font !== font) context.font = font;

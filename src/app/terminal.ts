@@ -726,7 +726,8 @@ function positionSearchBar(): void {
   const rect = id ? lastPaneRects.get(id) : undefined;
   if (!rect) { closeSearch(false); return; }
   searchBar.style.top = `${rect.y + 8}px`;
-  searchBar.style.right = `${layerInner.clientWidth - rect.x - rect.width + 12}px`;
+  searchBar.style.right = `${layerInner.clientWidth - rect.x - rect.width + 8}px`;
+  searchBar.style.maxWidth = `${Math.max(0, rect.width - 16)}px`;
 }
 
 searchInput.addEventListener("input", () => runSearch(false));

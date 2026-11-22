@@ -8,8 +8,7 @@ export interface TitlebarViewData {
 }
 
 export function renderTitlebarView({ platform, context }: TitlebarViewData): string {
-  // Linux uses the desktop's titlebar, controls and resize frame.
-  if (platform === "linux") return "";
+  if (platform === "linux" || platform === "macos") return "";
   return `<header class="titlebar" data-tauri-drag-region data-platform="${platform}">
     <div class="titlebar-brand"><span class="titlebar-mark">${icon("logo")}</span><span>Ternway</span></div>
     ${context ? `<div class="titlebar-caption"><div class="titlebar-context"><strong>${escapeHtml(context.title)}</strong><span>${escapeHtml(context.detail)}</span></div></div>` : ""}
@@ -22,11 +21,11 @@ export function renderTitlebarView({ platform, context }: TitlebarViewData): str
 }
 
 export function renderLoadingView(): string {
-  return `<main class="boot-screen"><div class="boot-card"><div class="brand-mark">${icon("logo")}</div><div class="eyebrow">Ternway</div><h1>Starting up</h1><p>Your shell opens first. Saved servers, keys and credentials stay on this device.</p><div class="loading-line"><span></span></div></div></main>`;
+  return `<main class="boot-screen" aria-busy="true"><div class="boot-card"><div class="brand-mark" aria-hidden="true"></div><h1>Opening Ternway…</h1><div class="loading-line" aria-hidden="true"><span></span></div></div></main>`;
 }
 
 export function renderWelcomeView(): string {
-  return `<div class="welcome-page"><div class="welcome-art"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><span>${icon("logo")}</span></div><div class="eyebrow">Local and remote, one window</div><h1>Your shell,<br/><em>and every server.</em></h1><p class="welcome-copy">Work in a local terminal and add servers over SSH when you need them. Nothing is installed on the remote side.</p><div class="welcome-actions"><button class="button button-primary" data-action="open-local">${icon("terminalSmall")} Open local shell</button><button class="button button-quiet" data-action="add-server">${icon("plus")} Add server</button></div></div>`;
+  return `<div class="welcome-page"><div class="brand-mark" aria-hidden="true"></div><h1>Open a terminal</h1><p class="welcome-copy">Start a local shell or add a connection to a remote machine.</p><div class="welcome-actions"><button class="button button-primary" data-action="open-local">${icon("terminalSmall")} Open local shell</button><button class="button button-quiet" data-action="add-server">${icon("plus")} New connection</button></div></div>`;
 }
 
 export function renderEmptyWorkspaceView(): string {

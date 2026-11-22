@@ -14,7 +14,7 @@ const store = (entries: Record<string,string> = {}) => {
   return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key,value); } };
 };
 
-test("GitHub Dark and Light are the defaults, using official foreground and ANSI colors", () => {
+test("GitHub Dark and Light are the defaults", () => {
   assert.equal(restoredTheme(store()).id, "github-dark");
   assert.equal(restoredTheme(store({"ternway-theme":"light"})).id, "github-light");
   assert.equal(DEFAULT_THEME.background, "#0d1117");
@@ -23,6 +23,17 @@ test("GitHub Dark and Light are the defaults, using official foreground and ANSI
   assert.equal(themePreset("github-dark").terminal.red, "#ff7b72");
   assert.equal(namedTheme("GitHub Dark")?.id, "github-dark");
   assert.equal(findTheme("unknown"), undefined);
+});
+
+test("all light ANSI colors remain legible on the default terminal background", () => {
+  for (const theme of THEME_PRESETS.filter(theme => theme.mode === "light")) {
+    const threshold = theme.id.includes("high-contrast") ? 7 : 4.5;
+    for (const color of ["black","red","green","yellow","blue","magenta","cyan","white"]) {
+      for (const key of [color, `bright${color[0].toUpperCase()}${color.slice(1)}`]) {
+        assert.ok(contrast(String(theme.terminal[key]), theme.terminal.background!) >= threshold, `${theme.id}: ${key}`);
+      }
+    }
+  }
 });
 
 test("all presets have complete terminal palettes, readable text and readable primary buttons", () => {
