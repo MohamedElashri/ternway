@@ -33,7 +33,7 @@ export class WindowConfigQueue {
   }
 }
 const windowConfigs = new WindowConfigQueue(settings => invoke("configure_terminal_window", { settings }));
-export async function applyWindowConfig(config: TerminalConfig, fontSize: number, fontFamily: string, dark: boolean): Promise<void> {
+export async function applyWindowConfig(config: TerminalConfig, fontSize: number, fontFamily: string, dark: boolean, defaultDecorations: boolean): Promise<void> {
   const context = document.createElement("canvas").getContext("2d");
   if (context) context.font = `${fontSize}px ${fontFamily}`;
   const sidebar = document.querySelector<HTMLElement>(".sidebar");
@@ -43,6 +43,6 @@ export async function applyWindowConfig(config: TerminalConfig, fontSize: number
     chromeWidth: (sidebar?.getBoundingClientRect().width ?? 250) + 22,
     chromeHeight: 100,
     dark,
-    defaultDecorations: /linux/i.test(navigator.platform || navigator.userAgent),
+    defaultDecorations,
   });
 }

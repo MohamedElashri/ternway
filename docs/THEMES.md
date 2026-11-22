@@ -20,8 +20,11 @@ so using these presets requires no download or runtime dependency.
 
 Ternway maps Primer's semantic colors to its interface tokens. Muted interface text is adjusted
 toward the main foreground where necessary to reach 4.5:1 contrast on its surfaces.
-Primary button text uses a contrasting foreground as well. Terminal
-ANSI values are kept as published. The existing Dracula palette is retained from Ternway.
+Primary button text uses a contrasting foreground as well. The 16 standard ANSI colors
+in built-in light palettes have at least 4.5:1 contrast on the default terminal background,
+or 7:1 for GitHub Light High Contrast. Terminal search matches reverse the default
+foreground and background so the match stays legible in light and dark themes.
+The existing Dracula palette is retained from Ternway.
 
 The upstream MIT notices are bundled in `licenses/GitHub-Theme-MIT.txt` and
 `licenses/Primer-Primitives-MIT.txt`, and are available in About Ternway.

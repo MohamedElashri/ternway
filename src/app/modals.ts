@@ -20,7 +20,7 @@ export function renderAppDialog(): string {
   const prompt = state.appDialogPrompt;
   if (!prompt) return "";
   const iconName = prompt.kind === "warning" ? "shield" : "info";
-  return `<div class="backdrop app-dialog-backdrop" data-app-dialog><div class="modal modal-small app-dialog" role="alertdialog" aria-modal="true"><div class="modal-head"><div><div class="eyebrow">Ternway</div><h2>${escapeHtml(prompt.title)}</h2></div><button class="close-button" data-action="cancel-app-dialog" aria-label="Close dialog">${icon("close")}</button></div><div class="modal-body form-stack"><div class="app-dialog-message ${prompt.kind}">${icon(iconName)}<p>${escapeHtml(prompt.message)}</p></div><div class="modal-actions"><span></span><div class="modal-actions-right">${prompt.cancelLabel ? `<button class="button button-quiet" data-action="cancel-app-dialog">${escapeHtml(prompt.cancelLabel)}</button>` : ""}<button class="button ${prompt.kind === "warning" ? "button-danger" : "button-primary"}" data-action="accept-app-dialog">${escapeHtml(prompt.confirmLabel)}</button></div></div></div></div></div>`;
+  return `<div class="backdrop app-dialog-backdrop" data-app-dialog><div class="modal modal-small app-dialog" role="alertdialog" aria-modal="true" aria-labelledby="app-dialog-title" aria-describedby="app-dialog-message"><div class="modal-head"><h2 id="app-dialog-title">${escapeHtml(prompt.title)}</h2><button class="close-button" data-action="cancel-app-dialog" aria-label="Close dialog">${icon("close")}</button></div><div class="modal-body form-stack"><div class="app-dialog-message ${prompt.kind}">${icon(iconName)}<p id="app-dialog-message">${escapeHtml(prompt.message)}</p></div><div class="modal-actions"><span></span><div class="modal-actions-right">${prompt.cancelLabel ? `<button class="button button-quiet" data-action="cancel-app-dialog">${escapeHtml(prompt.cancelLabel)}</button>` : ""}<button class="button ${prompt.kind === "warning" ? "button-danger" : "button-primary"}" data-action="accept-app-dialog">${escapeHtml(prompt.confirmLabel)}</button></div></div></div></div></div>`;
 }
 
 export function confirm(messageText: string, options: { title?: string; kind?: string; confirmLabel?: string } = {}): Promise<boolean> {
@@ -81,7 +81,7 @@ export function renderModal(): string {
 }
 
 export function renderModalShell(title: string, subtitle: string, body: string, size = ""): string {
-  return `<div class="backdrop" data-backdrop><div class="modal ${size}" role="dialog" aria-modal="true"><div class="modal-head"><div><div class="eyebrow">Ternway</div><h2>${title}</h2><p>${subtitle}</p></div><button class="close-button" data-action="close-modal" aria-label="Close dialog">${icon("close")}</button></div>${body}</div></div>`;
+  return `<div class="backdrop" data-backdrop><div class="modal ${size}" role="dialog" aria-modal="true" aria-labelledby="modal-title"${subtitle ? ' aria-describedby="modal-subtitle"' : ""}><div class="modal-head"><div><h2 id="modal-title">${title}</h2>${subtitle ? `<p id="modal-subtitle">${subtitle}</p>` : ""}</div><button class="close-button" data-action="close-modal" aria-label="Close dialog">${icon("close")}</button></div>${body}</div></div>`;
 }
 
 export function renderTextInputModal(): string {
@@ -293,7 +293,7 @@ export function renderSecurityModal(): string {
     updates: () => `<div class="settings-group" id="settings-updates" tabindex="-1" role="region" aria-label="Updates">${renderUpdateSection()}</div>`,
     about: () => `<section class="settings-group" id="settings-about" aria-label="About Ternway">${renderAboutContent(true)}</section>`,
   };
-  return renderModalShell("Settings", "Choose a page to configure your workspace.", `${renderSettingsPages(state.settingsPage, pages)}<div class="settings-footer"><button class="button button-primary" data-action="close-modal">Done</button></div>`, "modal-settings");
+  return renderModalShell("Settings", "", `${renderSettingsPages(state.settingsPage, pages)}<div class="settings-footer"><button class="button button-primary" data-action="close-modal">Done</button></div>`, "modal-settings");
 }
 
 export function renderMasterPasswordModal(): string {

@@ -26,6 +26,4 @@ button:disabled { cursor: not-allowed; }
 .server-action, .quick-action, .close-button { border-radius: 5px; }
 .custom-select-trigger { height: 36px; border-radius: 6px; }
 .custom-select.open .custom-select-trigger { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
-.settings-nav .button { border-radius: 6px; font-weight: 500; }
-.settings-nav .button[aria-current="page"] { background: var(--accent-soft); color: var(--ink); box-shadow: inset 2px 0 var(--accent); }
 @media (prefers-reduced-motion: reduce) { button { transition: none !important; } }

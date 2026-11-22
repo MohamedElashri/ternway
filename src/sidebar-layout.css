@@ -38,9 +38,8 @@
 .app-shell .server-rail { container-type: inline-size; }
 .app-shell .sidebar { overflow: visible; }
 @container (max-width: 230px) {
-  .server-rail .connection-drag-hint, .server-rail .sidebar-search kbd { display: none; }
+  .server-rail .sidebar-search kbd { display: none; }
   .server-rail .sidebar-search input { padding-right: 8px; }
-  .server-rail .section-label-row { padding-left: 4px; }
   .server-rail .server-item { flex-wrap: wrap; gap: 5px; }
   .server-rail .server-item-copy { flex-basis: calc(100% - 40px); }
   .server-rail .server-item-actions { flex-basis: 100%; justify-content: flex-end; }

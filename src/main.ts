@@ -28,7 +28,7 @@ import { errorText } from "./app/command-client";
 import { handleChange, handleClick, renameWorkspaceTab, handleInput, handleKeydown, handleSubmit, runAction, workspaceTabDrag } from "./app/events";
 import { render, renderConnectionSidebar } from "./app/render";
 import { composingText, matchKeybinding } from "./app/keybindings";
-import { appWindow, DEFAULT_INTERFACE_SCALE, quickMode, root, state } from "./app/state";
+import { appWindow, DEFAULT_INTERFACE_SCALE, platform, quickMode, root, state } from "./app/state";
 import { togglePalette } from "./app/palette";
 import { loadTerminalConfig, persistWorkspaceSetting } from "./app/terminal-config";
 import { installTabStripHandlers } from "./app/terminal-tabs";
@@ -72,6 +72,7 @@ async function installEventListeners(): Promise<void> {
   state.terminalUnlisteners.push(...await installWindowEvents(appWindow.label, {
     quit: (token, restart) => { void prepareQuit(token, restart); },
     about: () => { void runAction("show-about"); },
+    settings: openSettingsFromWindow,
     updates: () => { void runAction("check-updates"); },
   }, listen));
   state.terminalUnlisteners.push(await listen("library-changed", () => { void refreshConnectionLibrary().catch(setError); }));
@@ -120,6 +121,10 @@ async function installEventListeners(): Promise<void> {
   }));
 }
 
+function openSettingsFromWindow(): void {
+  if (!quickMode && !state.loading && !state.modal && !state.appDialogPrompt) void runAction("credential-settings");
+}
+
 if (!quickMode) installSidebarLayout(root, { persist: persistWorkspaceSetting, error: setError, notice: message => showToast(message, "info") });
 installConnectionSidebar(root);
 installTabNavigation(root, "workspace", { select: selectWorkspaceTab, close: closeWorkspaceTab, rename: renameWorkspaceTab });
@@ -152,6 +157,13 @@ document.addEventListener("focusin", event => containModalFocus(root, event));
 window.addEventListener("keydown", (event) => {
   if (shutdownFrozen() && !(event.target instanceof Element && event.target.closest(".shutdown-freeze"))) { event.preventDefault(); event.stopImmediatePropagation(); return; }
   if (composingText(event)) return;
+  // WKWebView can deliver the shortcut to the focused terminal instead of the app menu.
+  if (platform === "macos" && !quickMode && event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && (event.code === "Comma" || event.key === ",")) {
+    event.preventDefault();
+    event.stopPropagation();
+    openSettingsFromWindow();
+    return;
+  }
   // This listener runs in capture phase, before the picker's key handler.
   const openPicker = root.querySelector<HTMLElement>(".custom-select.open");
   if (event.key === "Escape" && openPicker) {

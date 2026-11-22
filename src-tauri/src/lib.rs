@@ -1850,6 +1850,16 @@ pub fn run() {
                         )?;
                         if cfg!(target_os = "macos") {
                             submenu.set_text("Ternway")?;
+                            submenu.insert(
+                                &tauri::menu::MenuItem::with_id(
+                                    app,
+                                    "settings-ternway",
+                                    "Settings…",
+                                    true,
+                                    Some("CmdOrCtrl+,"),
+                                )?,
+                                2,
+                            )?;
                             // The default macOS Quit item terminates Cocoa directly, bypassing
                             // the asynchronous window-close session save.
                             submenu.remove_at(submenu.items()?.len() - 1)?;
@@ -1872,6 +1882,7 @@ pub fn run() {
                 }
                 let event_name = match event.id().as_ref() {
                     "about-ternway" => "show-about",
+                    "settings-ternway" => "show-settings",
                     "check-updates" => "check-updates",
                     _ => return,
                 };

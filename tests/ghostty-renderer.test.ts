@@ -85,3 +85,22 @@ test("configured underline position shifts and clips decoration within its cell"
   drawGhostty(canvas, frame, "monospace", 16, 9, 20, "#00f", new Map(), new Map(), undefined, 100);
   assert.deepEqual(fills.at(-1), [0, 19, 9, 1]);
 });
+
+test("search reverses the terminal colors for readable matches in either appearance", () => {
+  globalThis.window = { devicePixelRatio: 1 } as Window & typeof globalThis;
+  for (const [background, foreground] of [["#ffffff", "#1f2328"], ["#0d1117", "#e6edf3"]]) {
+    let fillStyle = "";
+    const calls: [string, string][] = [];
+    const context = new Proxy({}, {
+      set: (_, key, value) => { if (key === "fillStyle") fillStyle = value; return true; },
+      get: (_, key) => () => { if (key === "fillRect" || key === "fillText") calls.push([key, fillStyle]); },
+    });
+    const canvas = { width: 0, height: 0, style: {}, getContext: () => context } as unknown as HTMLCanvasElement;
+    const frame = {
+      cols: 1, rows: 1, background, foreground, offset: 0, rowIds: ["row"], images: [], searchSpans: [[0, 0, 1]],
+      lines: [[{ x: 0, width: 1, text: "x", fg: "#116329", bg: background, flags: 0, link: "" }]],
+    } as unknown as GhosttyFrame;
+    drawGhostty(canvas, frame, "monospace", 14, 9, 20, "#4488ee", new Map(), new Map());
+    assert.deepEqual(calls, [["fillRect", background], ["fillRect", foreground], ["fillText", background]]);
+  }
+});

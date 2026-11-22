@@ -1,6 +1,9 @@
+import { icon } from "../icons.ts";
+
 export const SETTINGS_PAGES = [
-  ["appearance", "Appearance"], ["terminal", "Terminal"], ["connections", "Connections"],
-  ["security", "Security"], ["updates", "Updates"], ["about", "About"],
+  ["appearance", "Appearance", "sun"], ["terminal", "Terminal", "terminalSmall"],
+  ["connections", "Connections", "network"], ["security", "Security", "shield"],
+  ["updates", "Updates", "download"], ["about", "About", "info"],
 ] as const;
 export type SettingsPage = typeof SETTINGS_PAGES[number][0];
 export type SettingsPageContent = Record<SettingsPage, () => string>;
@@ -11,7 +14,12 @@ export function isSettingsPage(value: unknown): value is SettingsPage {
 
 /** Only the selected page is rendered, so inactive controls never enter the focus order. */
 export function renderSettingsPages(page: SettingsPage, content: SettingsPageContent): string {
-  return `<div class="settings-layout"><nav class="settings-nav" aria-label="Settings pages">${SETTINGS_PAGES.map(([id, label]) => `<button type="button" class="button button-quiet" data-action="settings-page" data-settings-page="${id}" aria-controls="settings-page-content" ${page === id ? 'aria-current="page"' : ""}>${label}</button>`).join("")}</nav><div class="settings-content" id="settings-page-content" data-settings-page-panel="${page}">${content[page]()}</div></div>`;
+  return `<div class="settings-layout">
+    <nav class="settings-nav" aria-label="Settings pages">
+      ${SETTINGS_PAGES.map(([id, label, symbol]) => `<button type="button" class="settings-nav-item" data-action="settings-page" data-settings-page="${id}" aria-controls="settings-page-content"${page === id ? ' aria-current="page" autofocus' : ""}>${icon(symbol)}<span>${label}</span></button>`).join("")}
+    </nav>
+    <div class="settings-content" id="settings-page-content" data-settings-page-panel="${page}">${content[page]()}</div>
+  </div>`;
 }
 
 export function settingsPageForKey(page: SettingsPage, key: string): SettingsPage | null {
