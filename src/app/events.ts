@@ -383,7 +383,9 @@ export async function runAction(action: string, target: HTMLElement = document.c
     case "copy-build-info": await copyText(aboutBuildSummary()); break;
     case "open-project-link": {
       const key = target.dataset.projectLink;
-      if (key === "source" || key === "issues" || key === "releases" || key === "license") await openUrl(BRAND[key]).catch(setError);
+      if (key === "website" || key === "source" || key === "issues" || key === "releases" || key === "license" || key === "support") {
+        await openUrl(BRAND[key]).catch(setError);
+      }
       break;
     }
     case "settings-page": {
