@@ -2,10 +2,12 @@ export const BRAND = {
   name: "Ternway",
   tagline: "Your machines. One workspace.",
   author: "Mohamed Elashri",
+  website: "https://melashri.net/soft/ternway/",
   source: "https://github.com/MohamedElashri/ternway",
   issues: "https://github.com/MohamedElashri/ternway/issues",
   releases: "https://github.com/MohamedElashri/ternway/releases",
   license: "https://github.com/MohamedElashri/ternway/blob/main/LICENSE",
+  support: "https://ko-fi.com/melashri",
 } as const;
 
 export interface BuildMetadata {

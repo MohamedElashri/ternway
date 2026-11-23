@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.3 - 2026-11-23
+
+- Refresh About with project links and an optional Ko-fi tip link.
+
 ## 0.5.2 - 2026-11-22
 
 - Refresh the workspace and Settings on macOS and Linux, with a new Ternway icon.

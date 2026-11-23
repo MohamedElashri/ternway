@@ -56,6 +56,10 @@ make help     # list every target
 
 See the [developer guide](DEVELOPER_GUIDE.md) for dependencies, architecture and releasing.
 
+## Support
+
+Visit the [project website](https://melashri.net/soft/ternway/) for downloads and links. [Support on Ko-fi](https://ko-fi.com/melashri) if you’d like to leave an optional tip.
+
 ## License
 
 [MIT](LICENSE). Bundles JetBrains Mono under the
