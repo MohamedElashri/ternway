@@ -2,7 +2,7 @@ export const BRAND = {
   name: "Ternway",
   tagline: "Your machines. One workspace.",
   author: "Mohamed Elashri",
-  website: "https://melashri.net/soft/ternway/",
+  website: "https://melashri.net/software/ternway/",
   source: "https://github.com/MohamedElashri/ternway",
   issues: "https://github.com/MohamedElashri/ternway/issues",
   releases: "https://github.com/MohamedElashri/ternway/releases",

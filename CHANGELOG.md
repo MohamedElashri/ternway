@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.4 - 2026-11-23
+
+- Keep the Ko-fi tip visible in the headers of both About views, including while scrolling.
+- Add a README badge and point project links to the main software catalog.
+
 ## 0.5.3 - 2026-11-23
 
 - Refresh About with project links and an optional Ko-fi tip link.

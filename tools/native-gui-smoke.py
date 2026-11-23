@@ -274,8 +274,20 @@ try:
     click('[data-settings-page="about"]')
     wait(lambda: read("return !!document.querySelector('.settings-content .about-details') && !document.querySelector('#settings-security');"), 'About settings page')
     assert read("return document.querySelector('.about-details')?.textContent.includes('libghostty-vt 1.0.1 (native)');")
-    click('[data-settings-page="appearance"]')
     request('POST', f'/session/{session}/window/rect', {'width':640, 'height':480})
+    wait(lambda: read("return window.innerHeight < 500;"), 'short About viewport')
+    assert execute("""
+        const tip = document.querySelector('.modal-settings .modal-head [data-project-link="support"]');
+        const details = document.querySelector('.settings-content');
+        if (!tip || !details) return false;
+        const before = tip.getBoundingClientRect();
+        details.scrollTop = details.scrollHeight;
+        const after = tip.getBoundingClientRect();
+        return details.scrollTop > 0 && before.top === after.top && after.top >= 0
+          && after.bottom <= window.innerHeight
+          && document.elementFromPoint(after.left + after.width / 2, after.top + after.height / 2) === tip;
+    """)
+    click('[data-settings-page="appearance"]')
     assert read("const modal=document.querySelector('.modal-settings'), nav=document.querySelector('.settings-nav'), footer=document.querySelector('.settings-footer');return modal.scrollHeight<=modal.clientHeight+1 && nav.getBoundingClientRect().top>=0 && footer.getBoundingClientRect().bottom<=window.innerHeight;")
     screenshot('settings-pages-narrow.png')
     request('POST', f'/session/{session}/window/rect', {'width':1400, 'height':900})

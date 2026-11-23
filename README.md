@@ -2,6 +2,8 @@
 
 **Your machines. One workspace.**
 
+[![Leave a tip on Ko-fi](https://img.shields.io/badge/Ko--fi-Leave%20a%20tip-913F51?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/melashri)
+
 <p align="center">
   <img src="docs/branding/ternway/release-banner.svg" width="480" alt="Ternway — Your machines. One workspace.">
 </p>
@@ -58,7 +60,9 @@ See the [developer guide](DEVELOPER_GUIDE.md) for dependencies, architecture and
 
 ## Support
 
-Visit the [project website](https://melashri.net/soft/ternway/) for downloads and links. [Support on Ko-fi](https://ko-fi.com/melashri) if you’d like to leave an optional tip.
+Tips are optional and help maintain the project.
+
+**[Leave a tip on Ko-fi](https://ko-fi.com/melashri)** · [Project website](https://melashri.net/software/ternway/)
 
 ## License
 

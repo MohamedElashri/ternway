@@ -22,7 +22,6 @@ export function renderAboutContent(embedded = false): string {
     <button type="button" class="button button-quiet" data-action="open-project-link" data-project-link="license">MIT license</button>
     <details class="theme-credits"><summary>GitHub theme and Primer licenses</summary><p>Built-in GitHub palettes are adapted from GitHub’s official themes and Primer Primitives.</p><pre>${escapeHtml(githubThemeLicense)}\n${escapeHtml(primerLicense)}</pre></details>
     <details class="theme-credits"><summary>Terminal engine licenses</summary><pre>${escapeHtml(terminalNotices)}</pre></details>
-    <div class="about-support"><button type="button" class="button button-quiet" data-action="open-project-link" data-project-link="support">Support on Ko-fi</button></div>
     <div class="about-footer"><button class="button button-quiet" data-action="copy-build-info" ${metadata ? "" : "disabled"}>Copy build details</button><button class="button button-quiet" data-action="check-updates">Check for updates…</button></div>
     ${embedded ? "" : `<div class="modal-actions"><button class="button button-quiet" data-action="credential-settings">Settings</button><button class="button button-primary" data-action="close-modal">Done</button></div>`}
   </div>`;

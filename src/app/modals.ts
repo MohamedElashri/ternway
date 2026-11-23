@@ -63,7 +63,7 @@ export function renderModal(): string {
   if (state.modal === "compose-scale") return renderComposeScaleModal();
   if (state.modal === "ssh-import") return renderSshImportModal();
   if (state.modal === "identities") return renderIdentitiesModal();
-  if (state.modal === "about") return renderModalShell("About Ternway", "A desktop workspace for local and remote development.", renderAboutContent(), "modal-about");
+  if (state.modal === "about") return renderModalShell("About Ternway", "A desktop workspace for local and remote development.", renderAboutContent(), "modal-about", tipButton(true));
   if (state.modal === "updates") return renderModalShell("Software update", "Get the latest Ternway release from GitHub.", `<div class="modal-body">${renderUpdateSection(true)}<div class="modal-actions"><button class="button button-quiet" data-action="close-modal">Close</button></div></div>`, "modal-updates");
   if (state.modal === "security") return renderSecurityModal();
   if (state.modal === "ssh-password") return renderSshPasswordModal();
@@ -80,8 +80,13 @@ export function renderModal(): string {
   return renderInspectModal();
 }
 
-export function renderModalShell(title: string, subtitle: string, body: string, size = ""): string {
-  return `<div class="backdrop" data-backdrop><div class="modal ${size}" role="dialog" aria-modal="true" aria-labelledby="modal-title"${subtitle ? ' aria-describedby="modal-subtitle"' : ""}><div class="modal-head"><div><h2 id="modal-title">${title}</h2>${subtitle ? `<p id="modal-subtitle">${subtitle}</p>` : ""}</div><button class="close-button" data-action="close-modal" aria-label="Close dialog">${icon("close")}</button></div>${body}</div></div>`;
+function tipButton(inAbout: boolean): string {
+  return `<button type="button" class="button button-quiet modal-tip" data-action="open-project-link" data-project-link="support" data-in-about="${inAbout}"><span aria-hidden="true">♥</span> Leave a tip on Ko-fi</button>`;
+}
+
+export function renderModalShell(title: string, subtitle: string, body: string, size = "", headerAction = ""): string {
+  const close = `<button class="close-button" data-action="close-modal" aria-label="Close dialog"${size === "modal-about" ? " autofocus" : ""}>${icon("close")}</button>`;
+  return `<div class="backdrop" data-backdrop><div class="modal ${size}" role="dialog" aria-modal="true" aria-labelledby="modal-title"${subtitle ? ' aria-describedby="modal-subtitle"' : ""}><div class="modal-head"><div><h2 id="modal-title">${title}</h2>${subtitle ? `<p id="modal-subtitle">${subtitle}</p>` : ""}</div>${headerAction ? `<div class="modal-header-actions">${headerAction}${close}</div>` : close}</div>${body}</div></div>`;
 }
 
 export function renderTextInputModal(): string {
@@ -293,7 +298,7 @@ export function renderSecurityModal(): string {
     updates: () => `<div class="settings-group" id="settings-updates" tabindex="-1" role="region" aria-label="Updates">${renderUpdateSection()}</div>`,
     about: () => `<section class="settings-group" id="settings-about" aria-label="About Ternway">${renderAboutContent(true)}</section>`,
   };
-  return renderModalShell("Settings", "", `${renderSettingsPages(state.settingsPage, pages)}<div class="settings-footer"><button class="button button-primary" data-action="close-modal">Done</button></div>`, "modal-settings");
+  return renderModalShell("Settings", "", `${renderSettingsPages(state.settingsPage, pages)}<div class="settings-footer"><button class="button button-primary" data-action="close-modal">Done</button></div>`, "modal-settings", tipButton(state.settingsPage === "about"));
 }
 
 export function renderMasterPasswordModal(): string {
